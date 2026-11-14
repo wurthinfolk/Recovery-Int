@@ -1,0 +1,788 @@
+# WÜRTH LANKA — CHEQUE RETURN INTELLIGENCE & RECOVERY ANALYTICS PLATFORM
+
+## 1. Your Role
+
+Act as a senior enterprise software architect, data analyst, financial risk analyst, business intelligence developer, and UX designer.
+
+Build a production-oriented internal web application for WÜRTH Lanka's Recovery Department.
+
+**Application name:** WÜRTH Recovery Intelligence
+
+**Primary purpose:** Convert returned-cheque records into actionable business intelligence. The application must help the Recovery team understand why cheques are being returned, which customers and account managers contribute most to the problem, where financial exposure is concentrated, which cases require urgent attention, and which recovery actions are producing results.
+
+This is not merely an Excel replacement or a dashboard displaying totals. It must function as a decision-support platform.
+
+## 2. Technology Stack
+
+Use the following stack:
+
+- Frontend: React + TypeScript.
+- UI: Modern, responsive enterprise interface.
+- Backend and database: Firebase and Cloud Firestore.
+- Authentication: Firebase Authentication.
+- Charts: A suitable React charting library such as Recharts.
+- Data processing: TypeScript analytics services with well-defined, testable calculation functions.
+- AI analytics: Use an AI model through a secure server-side integration only when a suitable provider and API credentials are configured.
+- Deployment: Firebase-compatible architecture.
+
+Do not expose API keys or privileged credentials in frontend code.
+
+Separate UI components, data access, business logic, analytics calculations, authentication, and reporting into maintainable modules.
+
+Do not generate only a mockup. Build working forms, persistent records, functional filters, calculated metrics, drill-down views, and interactive charts.
+
+## 3. Design and Branding
+
+Use WÜRTH-inspired corporate branding.
+
+- White and light-grey background.
+- WÜRTH red as the primary accent.
+- Dark charcoal text.
+- Professional typography.
+- Clean tables with readable financial figures.
+- Consistent spacing, clear labels, and restrained use of color.
+- Red for high-risk conditions, amber for warnings, green for verified positive outcomes, and neutral colours for ordinary information.
+- Avoid excessive gradients, decorative elements, and unnecessary animations.
+
+Create a desktop-first application that also works on tablets and mobile screens.
+
+Use a persistent left navigation sidebar and a compact top bar containing the page title, reporting-period selector, current user, and account menu.
+
+Navigation:
+
+1. Executive Dashboard
+2. Cheque Return Register
+3. Add Returned Cheque
+4. Customer Intelligence
+5. ADM Performance
+6. Return Reason Analysis
+7. Recovery Action Centre
+8. Trends & Anomalies
+9. Reports & Exports
+10. Data Import
+11. Audit Log
+12. Settings & Access Control
+
+Show navigation items according to the authenticated user's permissions.
+
+## 4. Data Model
+
+Create a normalized data model that supports historical analysis, customer-level investigation, recovery tracking, and reliable reporting.
+
+### A. Returned cheque record
+
+Support these original business fields:
+
+- Month
+- Date-Posted
+- Effective-Date
+- CX NUMBER
+- CX NAME
+- ADM NAME
+- ADM CODE
+- DESCRIPTION
+- AMOUNT
+- RETURN REASON
+- FINAL REMARK
+
+Map them into clean internal field names while retaining the original values where required.
+
+Use a unique internal record ID for every returned-cheque record.
+
+Recommended additional system fields:
+
+- Created At
+- Created By
+- Updated At
+- Updated By
+- Record Status
+- Validation Status
+- Original Import Batch ID
+- Record Version
+
+Use Date-Posted as the default date for reporting trends, unless the user explicitly selects Effective-Date or another clearly defined date basis.
+
+Do not silently change original dates, amounts, customer identifiers, or descriptions.
+
+### B. Customer intelligence
+
+Use CX NUMBER as the primary customer identifier.
+
+Maintain customer-level historical metrics derived from returned-cheque records.
+
+Where multiple customer names appear for the same CX NUMBER, flag the inconsistency for review. Do not automatically merge different customer numbers based on similar names.
+
+### C. ADM intelligence
+
+Use ADM CODE as the primary account-manager identifier when available.
+
+Track the associated ADM NAME and identify inconsistencies for review.
+
+Do not treat a missing ADM code as proof that the record belongs to a different person.
+
+### D. Recovery case and action tracking
+
+A returned cheque must not be considered recovered merely because its FINAL REMARK contains the word "Clear".
+
+Create structured recovery tracking fields, including:
+
+- Recovery Status
+- Assigned Recovery Officer
+- Priority
+- Next Action
+- Next Follow-up Date
+- Last Contact Date
+- Resolution Date
+- Recovered Amount
+- Remaining Unrecovered Amount
+- Recovery Notes
+- Resolution Evidence or Reference
+- Status Updated By
+- Status Updated At
+
+Suggested recovery statuses:
+
+- New
+- Under Investigation
+- Customer Contact Required
+- Payment Promised
+- Awaiting Replacement Cheque
+- Partially Recovered
+- Recovered
+- Escalated
+- Closed — Other Resolution
+
+Allow administrators to configure additional statuses.
+
+Preserve FINAL REMARK as the original source field. Store structured recovery information separately.
+
+Do not assume that every returned cheque represents a unique customer, that every cheque is still outstanding, or that every recorded amount remains unrecovered.
+
+## 5. Executive Dashboard
+
+Create a decision-focused dashboard that answers business questions immediately.
+
+### A. Key performance indicators
+
+Display the following metrics for the selected period:
+
+1. Total returned-cheque count.
+2. Total returned-cheque value.
+3. Unique affected customers.
+4. Average returned-cheque amount.
+5. Repeat-return customers.
+6. Total value associated with repeat-return customers.
+7. Unrecovered exposure, calculated from verified recovery records.
+8. Overdue recovery cases.
+9. Recovery rate by value, where the required data is available.
+10. Change in returned-cheque count and value versus the previous comparable period.
+
+Every KPI must have a clear definition, reporting period, and calculation basis.
+
+Do not label total returned-cheque value as outstanding debt unless outstanding status has been verified.
+
+### B. Trend analysis
+
+Build interactive line and column charts for:
+
+- Monthly returned-cheque count.
+- Monthly returned-cheque value.
+- Average returned-cheque amount by month.
+- Repeat-return customer count by month.
+- Unrecovered exposure over time.
+- Recovery value over time.
+- Recovery rate over time, where sufficient outcome data exists.
+
+Support monthly, quarterly, and yearly aggregation.
+
+Allow users to click a chart segment or data point to view the underlying records.
+
+Compare equivalent periods only. If a period is incomplete, label it as partial.
+
+When historical data is insufficient, show an informative message rather than manufacturing a trend.
+
+### C. Concentration analysis
+
+Identify where the returned-cheque problem is concentrated.
+
+Show:
+
+- Top 10 customers by returned-cheque value.
+- Top 10 customers by return frequency.
+- Top 10 ADMs by returned-cheque value.
+- Top 10 ADMs by return frequency.
+- Highest-value return reasons.
+- Most frequent return reasons.
+- Departments, territories, or regions only if those fields become available in verified source data.
+
+Use Pareto charts to show the percentage of total returned-cheque value attributable to the largest contributing customers and return reasons.
+
+Calculate cumulative contribution percentages accurately.
+
+Highlight cases where a small group of customers contributes a disproportionately large share of total returns.
+
+Distinguish high-value customers from high-frequency customers. These are different risk patterns and require different interventions.
+
+### D. Return reason intelligence
+
+Normalize return reasons for analytical grouping while preserving the original text.
+
+For example, group spelling, spacing, and capitalization variations only when the normalized meanings are demonstrably equivalent.
+
+Do not merge legally or operationally different return reasons.
+
+Show:
+
+- Return count by reason.
+- Return value by reason.
+- Average amount by reason.
+- Monthly trend by reason.
+- Customer concentration by reason.
+- Repeat occurrence of each reason for the same customer.
+- Change in reason distribution over time.
+
+Identify whether the dominant problem is associated with reasons such as account closure, stopped payments, drawer referral, post-dated cheques, or mandate discrepancies, using only the reasons actually present in the source data.
+
+Provide drill-down access to the underlying records.
+
+## 6. Advanced Pattern Detection
+
+This is a core requirement.
+
+Do not limit analysis to standard totals, pie charts, and bar charts. Implement transparent analytical rules that identify patterns and generate investigation opportunities.
+
+### A. Repeat-return detection
+
+Identify customers with multiple returned cheques.
+
+For each customer, calculate:
+
+- Total returns.
+- Total returned value.
+- First and most recent return date.
+- Number of distinct months with returns.
+- Most frequent return reason.
+- Most recent return reason.
+- Average amount per returned cheque.
+- Consecutive months with returns, where applicable.
+- Number of unresolved cases.
+- Verified unrecovered exposure.
+
+Allow configurable repeat thresholds.
+
+Identify customers who return cheques repeatedly despite previous recovery actions.
+
+### B. Deteriorating customer patterns
+
+Detect customers whose return frequency or returned value is increasing.
+
+Examples of patterns to investigate:
+
+- Increased return frequency compared with the previous comparable period.
+- A significant increase in average returned-cheque amount.
+- Returns occurring in several consecutive months.
+- New return reasons appearing for an existing customer.
+- A new high-value return from a customer with a prior return history.
+- Repeated returns after a previously recorded recovery.
+
+Apply minimum observation requirements to prevent misleading conclusions from one or two records.
+
+Show the comparison period, baseline, observed value, absolute change, percentage change, and supporting record count.
+
+### C. ADM-level patterns
+
+Analyze returned-cheque records by ADM CODE.
+
+Identify:
+
+- ADMs with the highest returned-cheque value.
+- ADMs with the highest return frequency.
+- Changes in returned-cheque value by ADM over time.
+- Concentration of repeat-return customers within an ADM portfolio.
+- Return-reason distributions by ADM.
+- Customers with recurring returns within each ADM portfolio.
+
+Important: High return totals do not automatically mean an ADM is performing poorly.
+
+The system must explicitly account for the absence of exposure data, sales volume, customer portfolio size, tenure, territory, and other relevant denominators.
+
+Do not produce unfair rankings or claims of poor performance when those factors are unavailable.
+
+Use neutral language such as "highest recorded returned-cheque value" rather than "worst-performing ADM".
+
+### D. Anomaly detection
+
+Implement a transparent, explainable anomaly-detection module.
+
+Initially use practical statistical methods, including:
+
+- Robust deviations from historical customer averages.
+- Period-over-period changes.
+- Unusually high amounts compared with a customer's own history.
+- Unusual concentrations of a return reason.
+- Unexpected changes in monthly return frequency.
+- Concentration shifts among customers or ADMs.
+
+Use a sufficient historical baseline before assigning statistical anomaly labels.
+
+Where the history is insufficient, classify the result as "Insufficient baseline".
+
+Every alert must explain:
+
+- What was detected.
+- What comparison was used.
+- Why it was flagged.
+- How many records support it.
+- The financial value involved.
+- What the Recovery team should investigate next.
+
+Do not call an ordinary threshold breach a proven fraud event. The application is for investigation and recovery support, not automatic fraud determination.
+
+### E. Pattern discovery
+
+Create a dedicated page called "Trends & Anomalies".
+
+Present the most significant findings as ranked insight cards, for example:
+
+- Repeat-return concentration.
+- Increasing return frequency.
+- High-value exposure concentration.
+- Dominant return reason.
+- Unresolved high-value cases.
+- Customers requiring renewed follow-up.
+- Significant changes from the historical baseline.
+
+These are examples of insight categories, not predetermined findings.
+
+Generate actual findings only when supported by the loaded records.
+
+Each insight must include its evidence, impact, confidence or data sufficiency, and recommended next step.
+
+## 7. Recovery Action Centre
+
+Convert analytics into a working action queue.
+
+Display cases ranked by operational priority using configurable rules.
+
+Consider:
+
+- Verified unrecovered amount.
+- Number of previous returns.
+- Age of unresolved cases.
+- Previous recovery attempts.
+- Missed follow-up dates.
+- Customer's recent return pattern.
+- Return reason.
+- Existing escalation status.
+
+Use an explainable priority score or transparent rule-based classification.
+
+Do not invent a probability of default or a probability of recovery unless a validated predictive model and appropriate training data are available.
+
+Provide priority categories such as Critical, High, Medium, and Low.
+
+Every category must have a documented rule.
+
+### Recovery workflow
+
+Authorized users must be able to:
+
+- Assign a case to a Recovery Officer.
+- Record a contact attempt.
+- Record a promised payment date.
+- Record a promised payment amount.
+- Record a replacement-cheque reference.
+- Record a partial recovery.
+- Update the next action and follow-up date.
+- Escalate a case.
+- Record resolution details.
+- Add internal notes.
+- View the full case history.
+
+Support a consolidated customer view containing all historical returned-cheque records and recovery actions.
+
+Create a follow-up queue for overdue actions and upcoming commitments.
+
+Never delete the original returned-cheque record when a recovery action is completed.
+
+## 8. Add Returned Cheque Form
+
+Provide a simple, efficient data-entry interface.
+
+Users should be able to record a cheque return without needing to understand analytics or database terminology.
+
+Required business fields:
+
+- Date-Posted.
+- Effective-Date.
+- CX NUMBER.
+- CX NAME.
+- ADM CODE.
+- ADM NAME.
+- DESCRIPTION or cheque reference.
+- AMOUNT.
+- RETURN REASON.
+- FINAL REMARK.
+
+Implement:
+
+- Required-field validation.
+- Numeric validation for amounts.
+- Date validation.
+- Clear error messages.
+- Customer lookup by CX NUMBER.
+- ADM lookup by ADM CODE.
+- Duplicate warnings based on cheque reference, customer number, date, and amount.
+- Confirmation before saving.
+- Success and failure feedback.
+- Automatic timestamps and user attribution.
+- Searchable customer and ADM selectors when reference records exist.
+
+Allow authorized users to correct mistakes through a controlled editing workflow.
+
+Record changes in an audit log.
+
+Do not silently reject records simply because a duplicate warning appears. Allow authorized users to investigate and confirm legitimate duplicate-looking records.
+
+## 9. Excel and CSV Import
+
+Provide a dedicated import interface for the existing Recovery team's Excel register.
+
+Support CSV and Excel file import where technically feasible.
+
+Map the source columns:
+
+Month, Date-Posted, Effective-Date, CX NUMBER, CX NAME, ADM NAME, ADM CODE, DESCRIPTION, AMOUNT, RETURN REASON, FINAL REMARK.
+
+The import workflow must include:
+
+1. File selection.
+2. Column mapping.
+3. Date and amount parsing.
+4. Data preview.
+5. Validation report.
+6. Duplicate detection.
+7. Row-level error details.
+8. Import confirmation.
+9. Import summary.
+10. Import batch history.
+
+Handle common spreadsheet issues such as whitespace, currency formatting, comma-separated amounts, inconsistent capitalization, and Excel date representations.
+
+Preserve original source values where practical and retain an import batch reference.
+
+Do not silently skip invalid rows.
+
+Prevent repeated imports from creating duplicate records by using a documented, deterministic duplicate-detection strategy.
+
+Do not automatically merge potentially distinct cheque records.
+
+Never overwrite an existing record during an import without explicit authorization and a recorded audit entry.
+
+### Data integrity rules
+
+- Preserve the original Date-Posted and Effective-Date.
+- Use a consistent internal date representation.
+- Treat Month as a source field and derive reporting month from the selected reporting date.
+- Flag disagreements between the source Month and the month derived from Date-Posted.
+- Flag Effective-Dates that precede or follow Date-Posted for review without assuming that they are invalid.
+- Preserve original return-reason text.
+- Keep original amounts and normalized numeric amounts distinguishable.
+- Do not infer missing recovery outcomes.
+- Do not manufacture customer, ADM, payment, or recovery data.
+
+## 10. Reports and Exports
+
+Provide downloadable CSV and Excel reports where supported.
+
+Required reports:
+
+- Complete returned-cheque register.
+- Monthly returned-cheque summary.
+- Customer-wise analysis.
+- ADM-wise analysis.
+- Return-reason analysis.
+- Repeat-return customer report.
+- Unresolved recovery cases.
+- Overdue follow-ups.
+- High-priority cases.
+- Recovery outcomes and recovered amounts.
+- Anomaly and trend report.
+- Data-quality and import-error report.
+
+Allow filters by:
+
+- Reporting date range.
+- Customer number.
+- Customer name.
+- ADM code.
+- ADM name.
+- Return reason.
+- Recovery status.
+- Assigned Recovery Officer.
+- Priority.
+
+Reports must display the reporting period, applied filters, generation time, and calculation definitions.
+
+Exports must respect the user's access permissions.
+
+## 11. AI-Generated Management Insights
+
+Provide an optional AI-powered "Management Insights" section.
+
+The AI should analyze calculated metrics, trend summaries, and identified patterns rather than independently inventing financial figures.
+
+Example output structure:
+
+**Finding:** A verified pattern detected in the selected period.
+
+**Evidence:** The exact counts, amounts, dates, comparisons, and affected records supporting the finding.
+
+**Business impact:** The operational or financial significance, clearly distinguishing recorded returned value from verified unrecovered exposure.
+
+**Recommended action:** A practical investigation or recovery intervention.
+
+**Success measure:** The metric that should improve if the action works.
+
+**Limitations:** Missing data, insufficient history, or alternative explanations that could affect the conclusion.
+
+The AI must not fabricate trends, customer behavior, recovery outcomes, causes, or financial exposure.
+
+If AI credentials are unavailable, the system must still provide functional rule-based analytics and insights.
+
+Use a secure backend endpoint for AI requests. Do not transmit unnecessary customer information to external AI services. Provide an appropriate privacy and authorization boundary before enabling external processing.
+
+## 12. Data Quality and Analytical Integrity
+
+Build a dedicated data-quality monitor.
+
+Detect:
+
+- Missing customer numbers.
+- Missing ADM codes.
+- Missing dates.
+- Invalid or ambiguous dates.
+- Invalid amounts.
+- Inconsistent customer names for the same CX NUMBER.
+- Inconsistent ADM names for the same ADM CODE.
+- Inconsistent return-reason descriptions.
+- Potential duplicate cheque records.
+- Conflicting recovery statuses.
+- Recovery amounts exceeding the recorded cheque amount.
+- Records with incomplete follow-up information.
+
+Distinguish a data-quality warning from a confirmed error.
+
+Do not automatically change source records to make them appear consistent.
+
+Where an adjustment is needed, require authorized review and record the change.
+
+## 13. Security and User Roles
+
+Implement Firebase Authentication and server-enforced access control.
+
+Suggested roles:
+
+**Recovery Officer**
+- Add and view authorized cheque records.
+- Manage assigned recovery actions.
+- Update permitted recovery fields.
+- View relevant customer history.
+
+**Recovery Supervisor**
+- View team-wide data.
+- Assign cases.
+- Review escalations.
+- Monitor team performance and follow-ups.
+- Approve permitted corrections.
+
+**Management / Finance Viewer**
+- View authorized dashboards and reports.
+- Access aggregated insights and approved detailed records.
+- No unauthorized record modification.
+
+**System Administrator**
+- Manage users and role assignments.
+- Configure reference data and analytical thresholds.
+- Manage import settings.
+- Review audit logs.
+
+Adjust the roles to the actual company workflow before production deployment.
+
+Enforce permissions through Firebase Security Rules and trusted backend functions where needed. Do not rely on hiding buttons in the frontend.
+
+Use least-privilege access and restrict sensitive customer-level information to authorized users.
+
+## 14. Audit Trail
+
+Maintain an append-only audit history for important operations, including:
+
+- Record creation.
+- Record modification.
+- Recovery-status changes.
+- Amount changes.
+- Customer and ADM corrections.
+- Case assignments.
+- Recovery actions.
+- Import activity.
+- User-role changes.
+- Administrative configuration changes.
+
+Capture actor, timestamp, record ID, operation, and relevant before-and-after values.
+
+Users must not be able to modify or delete audit entries through the application.
+
+## 15. Firestore Architecture
+
+Design a maintainable Firestore structure with separate collections or appropriately normalized entities for:
+
+- Returned cheque records.
+- Customer reference records.
+- ADM reference records.
+- Recovery cases and actions.
+- Import batches.
+- Users and role assignments.
+- Audit events.
+- Analytical configuration.
+
+Avoid storing all historical data in a single oversized document.
+
+Use server-side validation for sensitive changes.
+
+Create required Firestore indexes for the application's filters and queries.
+
+For large datasets, aggregate analytics efficiently instead of downloading the entire database on every dashboard refresh.
+
+Ensure analytics calculations have a clearly defined source of truth and are reproducible from the underlying records.
+
+Implement pagination, loading states, empty states, error handling, and appropriate performance safeguards.
+
+## 16. Calculation Definitions
+
+Document and implement the following metrics precisely.
+
+**Returned-cheque count:** Number of distinct valid returned-cheque records under the documented record-identification rules.
+
+**Returned-cheque value:** Sum of the amounts of the included returned-cheque records.
+
+**Unique affected customers:** Count of distinct valid CX NUMBER values.
+
+**Repeat-return customer:** Customer with at least the configured number of distinct returned-cheque records within the selected analysis period.
+
+**Return frequency:** Number of returned-cheque records per customer, ADM, reason, or period.
+
+**Average returned-cheque amount:** Total included returned-cheque value divided by the included returned-cheque count.
+
+**Verified unrecovered exposure:** Sum of the remaining unrecovered amounts on cases with verified recovery status and valid recovery calculations. Exclude unresolved ambiguities from confirmed totals and report them separately.
+
+**Recovered amount:** Total verified recovery amounts under the defined recovery accounting rules. Prevent duplicate counting when multiple recovery transactions exist.
+
+**Recovery rate by value:** Verified recovered amount divided by the defined eligible returned-cheque value, expressed as a percentage. Document how partially recovered cases and the reporting period are handled.
+
+**Period-over-period change:** Current-period metric minus previous comparable-period metric. Show percentage change only when the comparison denominator is meaningful and non-zero.
+
+**Customer concentration:** Share of total included returned-cheque value contributed by a customer or selected customer group.
+
+Use decimal-safe financial calculations and consistent currency formatting. Display Sri Lankan rupees (LKR) where the source data is denominated in LKR.
+
+Do not treat missing values as zero without an explicit business rule.
+
+## 17. Testing and Acceptance Criteria
+
+Before declaring the application complete, verify the following.
+
+1. A user can add a returned-cheque record and retrieve it after refreshing the application.
+2. Imported records retain their source fields and correct amounts and dates.
+3. Reimporting the same file does not silently duplicate existing records.
+4. Filters update KPIs, tables, and charts consistently.
+5. Chart drill-down displays the correct underlying records.
+6. Repeat-return detection uses customer identifiers and distinct records correctly.
+7. Financial totals reconcile to the included source records.
+8. Recovery totals update correctly after verified partial and full recoveries.
+9. An unresolved case is not automatically classified as recovered.
+10. AI insights do not introduce unsupported figures.
+11. Access permissions are enforced beyond the UI.
+12. Unauthorized users cannot alter protected records or audit events.
+13. Invalid data is flagged and handled transparently.
+14. Empty or insufficient historical data produces clear messages rather than fabricated insights.
+15. Exports reconcile with the selected filters and underlying data.
+16. Audit events are recorded for sensitive changes.
+
+Create unit tests for metric calculations, period comparisons, duplicate detection, repeat-return rules, recovery calculations, and anomaly detection.
+
+## 18. Initial Development Data
+
+Use the actual sample records supplied by the project owner only for initial development and validation.
+
+Do not generate fictitious customers, cheques, recovery transactions, customer histories, or financial totals to make the dashboard look populated.
+
+If the application is initially tested with the ten supplied sample records, clearly label the data as a sample dataset and restrict conclusions to those records.
+
+Do not invent historical periods or claim that a customer is deteriorating when the available data does not establish that pattern.
+
+When no actual dataset is loaded, show a useful empty-state dashboard with instructions to import the existing Excel register.
+
+## 19. Implementation Sequence
+
+Build the application in these stages:
+
+**Stage 1 — Foundation**
+- Project structure.
+- WÜRTH branding.
+- Firebase integration.
+- Authentication and roles.
+- Firestore schema.
+- Returned-cheque register.
+- Add and edit forms.
+- Data validation and audit trail.
+
+**Stage 2 — Data ingestion**
+- Excel/CSV import.
+- Column mapping.
+- Validation preview.
+- Duplicate detection.
+- Import history.
+
+**Stage 3 — Core analytics**
+- Executive dashboard.
+- KPI calculations.
+- Date filters.
+- Trend charts.
+- Customer, ADM, and return-reason analysis.
+- Drill-down views.
+
+**Stage 4 — Intelligence**
+- Repeat-return detection.
+- Concentration and Pareto analysis.
+- Deteriorating-pattern detection.
+- Anomaly detection.
+- Explainable insight cards.
+
+**Stage 5 — Recovery workflow**
+- Case assignment.
+- Recovery action history.
+- Follow-up scheduling.
+- Exposure tracking.
+- Escalation queue.
+- Verified recovery outcomes.
+
+**Stage 6 — Enterprise readiness**
+- Management reports.
+- Secure exports.
+- Role and permission verification.
+- Performance optimization.
+- Automated tests.
+- Backup and recovery procedures.
+- Deployment documentation.
+
+Build incrementally, keeping existing working functionality intact as new modules are added.
+
+If a feature depends on missing source data or business rules, implement the available functionality and clearly identify the unresolved dependency instead of fabricating information.
+
+## Final Objective
+
+Deliver a usable internal application that enables WÜRTH Lanka's Recovery Department to move from recording returned cheques to identifying patterns, prioritizing recovery work, investigating root causes, and measuring the effectiveness of corrective actions.
+
+The most important output is not the number of charts. It is the quality of the decisions the application helps the Recovery team make.
+
+**Prioritize data accuracy, explainable analytics, actionable insights, security, and operational usefulness over visual complexity.**

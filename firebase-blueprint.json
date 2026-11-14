@@ -1,0 +1,246 @@
+{
+  "entities": {
+    "ChequeRecord": {
+      "title": "ChequeRecord",
+      "description": "Returned cheque record with original business fields and structured recovery tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "month": { "type": "string" },
+        "datePosted": { "type": "string" },
+        "effectiveDate": { "type": "string" },
+        "cxNumber": { "type": "string" },
+        "cxName": { "type": "string" },
+        "admName": { "type": "string" },
+        "admCode": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "returnReason": { "type": "string" },
+        "normalizedReason": { "type": "string" },
+        "finalRemark": { "type": "string" },
+        "recoveryStatus": { "type": "string" },
+        "priority": { "type": "string" },
+        "assignedOfficer": { "type": "string" },
+        "recoveredAmount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "nextAction": { "type": "string" },
+        "nextFollowUpDate": { "type": "string" },
+        "lastContactDate": { "type": "string" },
+        "resolutionDate": { "type": "string" },
+        "resolutionEvidence": { "type": "string" },
+        "recoveryNotes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "batchId": { "type": "string" },
+        "isSample": { "type": "boolean" }
+      },
+      "required": ["id", "datePosted", "cxNumber", "cxName", "amount", "returnReason", "recoveryStatus"]
+    },
+    "RecoveryAction": {
+      "title": "RecoveryAction",
+      "description": "Structured recovery intervention or contact record linked to a returned cheque",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chequeId": { "type": "string" },
+        "cxNumber": { "type": "string" },
+        "actionType": { "type": "string" },
+        "officerName": { "type": "string" },
+        "officerId": { "type": "string" },
+        "notes": { "type": "string" },
+        "promisedDate": { "type": "string" },
+        "promisedAmount": { "type": "number" },
+        "recoveredAmount": { "type": "number" },
+        "replacementChequeRef": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "chequeId", "actionType", "officerName", "createdAt"]
+    },
+    "ImportBatch": {
+      "title": "ImportBatch",
+      "description": "Metadata regarding an imported spreadsheet batch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fileName": { "type": "string" },
+        "totalRows": { "type": "number" },
+        "importedCount": { "type": "number" },
+        "duplicateCount": { "type": "number" },
+        "errorCount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "importedAt": { "type": "string" },
+        "importedBy": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "fileName", "totalRows", "importedCount", "importedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Append-only operational audit trail entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recordId": { "type": "string" },
+        "recordType": { "type": "string" },
+        "operation": { "type": "string" },
+        "actor": { "type": "string" },
+        "actorEmail": { "type": "string" },
+        "details": { "type": "string" },
+        "beforeValue": { "type": "string" },
+        "afterValue": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "operation", "actor", "timestamp"]
+    },
+    "AnalyticalConfig": {
+      "title": "AnalyticalConfig",
+      "description": "Configurable risk thresholds and enterprise parameters",
+      "type": "object",
+      "properties": {
+        "repeatReturnThreshold": { "type": "number" },
+        "highValueThreshold": { "type": "number" },
+        "overdueDaysThreshold": { "type": "number" },
+        "currency": { "type": "string" }
+      },
+      "required": ["repeatReturnThreshold", "highValueThreshold", "overdueDaysThreshold"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account authorization profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "DivisionHeadMaster": {
+      "title": "DivisionHeadMaster",
+      "description": "Division Head master entity governing one or more Divisions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "canonicalName": { "type": "string" },
+        "verificationStatus": { "type": "string" },
+        "verificationReason": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "canonicalName", "verificationStatus"]
+    },
+    "TeamMaster": {
+      "title": "TeamMaster",
+      "description": "Team master entity scoped uniquely within a Division",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teamName": { "type": "string" },
+        "canonicalKey": { "type": "string" },
+        "division": { "type": "string" },
+        "divisionHeadId": { "type": "string" },
+        "divisionHeadName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "teamName", "canonicalKey", "division", "divisionHeadId"]
+    },
+    "AdmMasterRecord": {
+      "title": "AdmMasterRecord",
+      "description": "Authoritative Account Development Manager (ADM) master record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "empId": { "type": "string" },
+        "admNumber": { "type": "string" },
+        "salesRepName": { "type": "string" },
+        "teamId": { "type": "string" },
+        "teamName": { "type": "string" },
+        "division": { "type": "string" },
+        "divisionHeadId": { "type": "string" },
+        "divisionHeadName": { "type": "string" },
+        "employeeStatus": { "type": "string" },
+        "rawEmployeeStatus": { "type": "string" },
+        "mobileNo": { "type": "string" },
+        "email": { "type": "string" },
+        "verificationStatus": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "empId", "admNumber", "salesRepName", "teamId", "division", "employeeStatus"]
+    },
+    "CustomerMasterRecord": {
+      "title": "CustomerMasterRecord",
+      "description": "Authoritative Customer master record linked by ADM#",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "admNumber": { "type": "string" },
+        "admReference": { "type": "string" },
+        "salesRepName": { "type": "string" },
+        "uploadedSalesRepName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "teamId": { "type": "string" },
+        "teamName": { "type": "string" },
+        "division": { "type": "string" },
+        "divisionHeadId": { "type": "string" },
+        "divisionHead": { "type": "string" },
+        "customerStatus": { "type": "string" },
+        "assignmentEffectiveDate": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "customerId", "customerName", "admNumber", "customerStatus"]
+    }
+  },
+  "firestore": {
+    "/cheque_records/{recordId}": {
+      "schema": "ChequeRecord",
+      "description": "Returned cheque records for WÜRTH Recovery Department"
+    },
+    "/recovery_actions/{actionId}": {
+      "schema": "RecoveryAction",
+      "description": "Actions and interventions logged for recovery cases"
+    },
+    "/import_batches/{batchId}": {
+      "schema": "ImportBatch",
+      "description": "Spreadsheet import history and validation summaries"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Append-only audit events log"
+    },
+    "/config/analytics": {
+      "schema": "AnalyticalConfig",
+      "description": "System-wide analytical and risk detection settings"
+    },
+    "/user_profiles/{uid}": {
+      "schema": "UserProfile",
+      "description": "User role assignments"
+    },
+    "/division_head_master/{headId}": {
+      "schema": "DivisionHeadMaster",
+      "description": "Division Head master directory"
+    },
+    "/team_master/{teamId}": {
+      "schema": "TeamMaster",
+      "description": "Division-scoped Team master directory"
+    },
+    "/adm_master/{admId}": {
+      "schema": "AdmMasterRecord",
+      "description": "Authoritative ADM / Sales Representative master directory"
+    },
+    "/customer_master/{customerId}": {
+      "schema": "CustomerMasterRecord",
+      "description": "Authoritative Customer master directory linked via ADM#"
+    }
+  }
+}

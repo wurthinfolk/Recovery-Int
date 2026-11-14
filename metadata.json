@@ -1,0 +1,6 @@
+{
+  "name": "WÜRTH Recovery Intelligence",
+  "description": "WÜRTH Lanka Cheque Return Intelligence & Recovery Analytics Platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
