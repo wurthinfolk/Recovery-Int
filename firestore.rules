@@ -1,109 +1,235 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Default-deny catch-all
+
+    // Global default-deny catch-all
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // ============================================================
+    // Reusable Identity, Role & Validation Primitives
+    // ============================================================
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_.\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    function profileExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid));
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return profileExists() && userProfile().status == 'ACTIVE';
+    }
+
+    function isSystemAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'wurthinfolk@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (isActiveUser() && userProfile().role == 'SYSTEM_ADMIN')
       );
     }
 
-    // Connectivity verification probe
+    function isRecoveryOperator() {
+      return isActiveUser() && (
+        userProfile().role == 'RECOVERY_OFFICER' ||
+        userProfile().role == 'RECOVERY_SUPERVISOR'
+      );
+    }
+
+    function isManagementViewer() {
+      return isActiveUser() && userProfile().role == 'MANAGEMENT_VIEWER';
+    }
+
+    function isDivisionHead() {
+      return isActiveUser() && userProfile().role == 'DIVISION_HEAD';
+    }
+
+    function isDivisionHeadRecordInScope(data) {
+      return isDivisionHead() && (
+        (data.divisionHeadId is string && userProfile().divisionHeadId is string && data.divisionHeadId == userProfile().divisionHeadId) ||
+        (data.division is string && userProfile().assignedDivision is string && data.division == userProfile().assignedDivision) ||
+        (data.teamId is string && userProfile().assignedTeamId is string && data.teamId == userProfile().assignedTeamId)
+      );
+    }
+
+    function isValidRoleValue(role) {
+      return role in [
+        'SYSTEM_ADMIN',
+        'RECOVERY_OFFICER',
+        'RECOVERY_SUPERVISOR',
+        'MANAGEMENT_VIEWER',
+        'DIVISION_HEAD'
+      ];
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'username', 'email', 'displayName', 'role', 'status']) &&
+        data.keys().hasOnly([
+          'uid', 'username', 'email', 'displayName', 'role', 'department',
+          'mobileNo', 'employeeId', 'assignedDivision', 'assignedTeamId',
+          'assignedTeamName', 'divisionHeadId', 'divisionHeadName', 'status',
+          'mustChangePassword', 'lastLoginAt', 'createdAt', 'createdBy', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.username is string && data.username.size() >= 3 && data.username.size() <= 48 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        isValidRoleValue(data.role) &&
+        data.status in ['ACTIVE', 'INACTIVE'];
+    }
+
+    function isValidChequeRecord(data) {
+      return data.keys().hasAll(['id', 'datePosted', 'cxNumber', 'cxName', 'amount', 'returnReason', 'recoveryStatus']) &&
+        isValidId(data.id) &&
+        data.cxNumber is string && data.cxNumber.size() >= 1 && data.cxNumber.size() <= 80 &&
+        data.cxName is string && data.cxName.size() >= 1 && data.cxName.size() <= 200 &&
+        data.datePosted is string && data.datePosted.size() <= 32 &&
+        data.amount is number && data.amount >= 0 &&
+        data.returnReason is string && data.returnReason.size() <= 300 &&
+        data.recoveryStatus is string && data.recoveryStatus.size() <= 64;
+    }
+
+    function isValidRecoveryAction(data) {
+      return data.keys().hasAll(['id', 'chequeId', 'actionType', 'officerName', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.chequeId) &&
+        data.actionType is string && data.actionType.size() <= 64 &&
+        data.officerName is string && data.officerName.size() <= 120 &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'recordId', 'recordType', 'operation', 'actor', 'timestamp']) &&
+        isValidId(data.id) &&
+        data.recordId is string && data.recordId.size() <= 256 &&
+        data.recordType is string && data.recordType.size() <= 64 &&
+        data.operation is string && data.operation.size() <= 64 &&
+        data.actor is string && data.actor.size() <= 160 &&
+        data.timestamp is string && data.timestamp.size() <= 64;
+    }
+
+    // ============================================================
+    // Collections with Role-Based Access Control
+    // ============================================================
+
+    // Connectivity probe (signed-in read only)
     match /test/{docId} {
-      allow read, write: if true;
-    }
-
-    // Returned Cheque Records
-    match /cheque_records/{recordId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow write: if false;
     }
 
-    // Recovery Actions & Intervention Log
-    match /recovery_actions/{actionId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
-    }
-
-    // Spreadsheet Import Batch Summaries
-    match /import_batches/{batchId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
-    }
-
-    // Audit Logs - append-only for standard users, purgeable by System Admin
-    match /audit_logs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if false;
-      allow delete: if isAdmin();
-    }
-
-    // Analytical Configuration & Thresholds
-    match /config/{configId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    // User Profiles & Role Assignments
+    // User Profiles & Role Assignments (PII protected: owner or System Admin)
     match /user_profiles/{uid} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow get: if isValidId(uid) && (isSystemAdmin() || (isSignedIn() && request.auth.uid == uid));
+      allow list: if isSystemAdmin();
+      allow create: if isSystemAdmin() && isValidId(uid) && isValidUserProfile(incoming()) && incoming().uid == uid;
+      allow update: if isValidId(uid) && isValidUserProfile(incoming()) && (
+        isSystemAdmin() ||
+        (
+          isActiveUser() &&
+          request.auth.uid == uid &&
+          incoming().role == existing().role &&
+          incoming().status == existing().status &&
+          incoming().uid == existing().uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'mobileNo', 'updatedAt'])
+        )
+      );
+      allow delete: if isSystemAdmin();
     }
 
     // Admins reference collection
     match /admins/{uid} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow get: if isSignedIn() && isValidId(uid) && (request.auth.uid == uid || isSystemAdmin());
+      allow list, write: if isSystemAdmin();
     }
 
-    // Organization Management: Division Head Master
+    // Returned Cheque Records
+    match /cheque_records/{recordId} {
+      allow get: if isValidId(recordId) && (
+        isSystemAdmin() || isRecoveryOperator() || isManagementViewer()
+      );
+      allow list: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer();
+      allow create: if isValidId(recordId) && isValidChequeRecord(incoming()) && (isSystemAdmin() || isRecoveryOperator());
+      allow update: if isValidId(recordId) && isValidChequeRecord(incoming()) && (isSystemAdmin() || isRecoveryOperator());
+      allow delete: if isValidId(recordId) && (isSystemAdmin() || (isRecoveryOperator() && existing().isSample == true));
+    }
+
+    // Recovery Actions & Intervention Log
+    match /recovery_actions/{actionId} {
+      allow read: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer();
+      allow create: if isValidId(actionId) && isValidRecoveryAction(incoming()) && (isSystemAdmin() || isRecoveryOperator());
+      allow update: if isValidId(actionId) && isValidRecoveryAction(incoming()) && isSystemAdmin();
+      allow delete: if isSystemAdmin();
+    }
+
+    // Spreadsheet Import Batch Summaries
+    match /import_batches/{batchId} {
+      allow read: if isSystemAdmin() || isRecoveryOperator();
+      allow create: if isValidId(batchId) && (isSystemAdmin() || isRecoveryOperator());
+      allow update, delete: if isSystemAdmin();
+    }
+
+    // Audit Logs - immutable; read/delete restricted to System Admin
+    match /audit_logs/{logId} {
+      allow read: if isSystemAdmin();
+      allow create: if isValidId(logId) && isValidAuditLog(incoming()) && (isSystemAdmin() || isActiveUser());
+      allow update: if false;
+      allow delete: if isSystemAdmin();
+    }
+
+    // Analytical Configuration & Thresholds
+    match /config/{configId} {
+      allow read: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer() || isDivisionHead();
+      allow write: if isSystemAdmin();
+    }
+
+    // Organization Management: Division Head Master (Division Heads restricted to own record)
     match /division_head_master/{headId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow get: if isValidId(headId) && (
+        isSystemAdmin() || isRecoveryOperator() || isManagementViewer() ||
+        (isDivisionHead() && userProfile().divisionHeadId == headId)
+      );
+      allow list: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer() ||
+        (isDivisionHead() && existing().id == userProfile().divisionHeadId);
+      allow write: if isSystemAdmin();
     }
 
     // Organization Management: Team Master
     match /team_master/{teamId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow read: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer() ||
+        isDivisionHeadRecordInScope(existing());
+      allow write: if isSystemAdmin();
     }
 
     // Organization Management: ADM Master
     match /adm_master/{admId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow read: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer() ||
+        isDivisionHeadRecordInScope(existing());
+      allow write: if isSystemAdmin();
     }
 
     // Organization Management: Customer Master
     match /customer_master/{customerId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow read: if isSystemAdmin() || isRecoveryOperator() || isManagementViewer() ||
+        isDivisionHeadRecordInScope(existing());
+      allow write: if isSystemAdmin();
     }
   }
 }

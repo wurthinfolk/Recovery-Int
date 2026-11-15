@@ -15,15 +15,13 @@ import {
   X,
   Lock,
 } from 'lucide-react';
-import { AnalyticalConfig, UserProfile, UserRole } from '../types';
-import { DEFAULT_CONFIG, formatLKR } from '../services/analytics';
+import { AnalyticalConfig, UserProfile } from '../types';
+import { formatLKR } from '../services/analytics';
 import {
-  resetDataset,
-  saveAnalyticalConfig,
-  clearEntireDatabase,
   ClearDatabaseOptions,
   ClearDatabaseResult,
 } from '../services/firebase';
+import { ALL_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS } from '../services/permissions';
 
 interface SettingsAndAccessControlProps {
   config: AnalyticalConfig;
@@ -60,6 +58,10 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
   const [confirmPhrase, setConfirmPhrase] = useState('');
   const [purging, setPurging] = useState(false);
   const [purgeResult, setPurgeResult] = useState<ClearDatabaseResult | null>(null);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [datasetConfirmMode, setDatasetConfirmMode] = useState<'sample' | 'empty' | null>(null);
+  const [datasetBusy, setDatasetBusy] = useState(false);
+  const [datasetNotice, setDatasetNotice] = useState<string | null>(null);
 
   const isAdmin = currentUser.role === 'SYSTEM_ADMIN';
 
@@ -84,9 +86,29 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
     }
   };
 
+  const handleConfirmDatasetReset = async () => {
+    if (!datasetConfirmMode) return;
+    setDatasetBusy(true);
+    setDatasetNotice(null);
+    try {
+      await onResetDataset(datasetConfirmMode === 'sample');
+      setDatasetNotice(
+        datasetConfirmMode === 'sample'
+          ? 'Loaded official sample dataset (10 records).'
+          : 'Active cheque register cleared to empty state.'
+      );
+      setDatasetConfirmMode(null);
+    } catch (err) {
+      setDatasetNotice(err instanceof Error ? err.message : 'Unable to update dataset.');
+    } finally {
+      setDatasetBusy(false);
+    }
+  };
+
   const handleExecutePurge = async () => {
     if (confirmPhrase.trim().toUpperCase() !== 'CLEAR DATABASE') return;
     setPurging(true);
+    setPurgeError(null);
     try {
       const result = await onPurgeDatabase(purgeOptions);
       setPurgeResult(result);
@@ -94,9 +116,11 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
       setTimeout(() => {
         setPurgeModalOpen(false);
       }, 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Database purge error:', err);
-      alert(`Purge failed: ${err?.message || 'Permission denied or network failure'}`);
+      const message =
+        err instanceof Error ? err.message : 'Permission denied or network failure';
+      setPurgeError(`Purge failed: ${message}`);
     } finally {
       setPurging(false);
     }
@@ -206,43 +230,23 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
               Role-Based Access Control Architecture (RBAC)
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Enforced server-side via Firebase Security Rules and least-privilege principles.
+              Enforced server-side via authenticated session tokens, organizational Division Head scoping, and Firebase Security Rules. Manage accounts under <strong>User Management</strong>.
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1">
-            <span className="font-bold text-slate-900">Recovery Officer</span>
-            <p className="text-slate-600 text-[11px] leading-relaxed">
-              Add and view authorized returned-cheque records; manage assigned recovery action queue; log
-              contact notes, promises to pay, and replacement cheques.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1">
-            <span className="font-bold text-slate-900">Recovery Supervisor</span>
-            <p className="text-slate-600 text-[11px] leading-relaxed">
-              Full department visibility; assign cases to recovery officers; review and authorize case
-              escalations; ingest and validate spreadsheet registers; review audit trails.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1">
-            <span className="font-bold text-slate-900">Management / Finance Viewer</span>
-            <p className="text-slate-600 text-[11px] leading-relaxed">
-              Executive access to KPI dashboards, customer concentration, ADM performance, and
-              downloadable management reports. No record modification permissions.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1">
-            <span className="font-bold text-slate-900">System Administrator</span>
-            <p className="text-slate-600 text-[11px] leading-relaxed">
-              System parameter and analytical threshold management; database health monitoring; audit
-              supervision; purge/clear database permissions and role governance.
-            </p>
-          </div>
+          {ALL_ROLES.map((role) => (
+            <div key={role} className="p-3 bg-slate-50 rounded border border-slate-200 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-slate-900">{ROLE_LABELS[role]}</span>
+                <span className="font-mono text-[10px] text-slate-500">{role}</span>
+              </div>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                {ROLE_DESCRIPTIONS[role]}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -265,35 +269,56 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
 
         <div className="flex flex-wrap items-center gap-3 pt-2">
           <button
-            onClick={() => {
-              if (
-                window.confirm(
-                  'Are you sure you want to load the 10 official sample records into the active register?'
-                )
-              ) {
-                onResetDataset(true);
-              }
-            }}
+            type="button"
+            onClick={() => setDatasetConfirmMode('sample')}
             className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors"
           >
             Reload Official Sample Dataset (10 Records)
           </button>
 
           <button
-            onClick={() => {
-              if (
-                window.confirm(
-                  'Are you sure you want to reset the cheque register to empty state? You can then import your company spreadsheet via the Data Import tab.'
-                )
-              ) {
-                onResetDataset(false);
-              }
-            }}
+            type="button"
+            onClick={() => setDatasetConfirmMode('empty')}
             className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 border border-slate-300 rounded transition-colors"
           >
             Reset Active Register to Empty State
           </button>
         </div>
+
+        {datasetConfirmMode && (
+          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <span className="text-amber-900 font-medium">
+              {datasetConfirmMode === 'sample'
+                ? 'Confirm reloading the 10 official sample records into the active cheque register?'
+                : 'Confirm clearing active cheque records to an empty register? Organization Master data will be preserved.'}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setDatasetConfirmMode(null)}
+                disabled={datasetBusy}
+                className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDatasetReset}
+                disabled={datasetBusy}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded"
+              >
+                {datasetBusy ? 'Updating...' : 'Confirm Reset'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {datasetNotice && (
+          <div className="text-xs font-medium text-emerald-700 flex items-center gap-1.5">
+            <CheckCircle className="w-4 h-4" />
+            <span>{datasetNotice}</span>
+          </div>
+        )}
       </div>
 
       {/* High-Security System Admin Purge Zone */}
@@ -330,6 +355,7 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
             <button
               onClick={() => {
                 setPurgeResult(null);
+                setPurgeError(null);
                 setConfirmPhrase('');
                 setPurgeModalOpen(true);
               }}
@@ -387,11 +413,14 @@ export const SettingsAndAccessControl: React.FC<SettingsAndAccessControlProps> =
               </div>
             ) : (
               <div className="space-y-4 text-xs">
+                {purgeError && (
+                  <div className="p-3 bg-red-50 border border-red-300 rounded text-red-800 font-medium">
+                    {purgeError}
+                  </div>
+                )}
                 <div className="p-3 bg-red-50 border border-red-200 rounded text-red-800 leading-relaxed">
                   <strong>WARNING:</strong> This action will permanently erase the selected collections
-                  from Cloud Firestore (project:{' '}
-                  <code className="font-mono font-bold">ai-studio-wrthrecoveryinte</code>) and local cache.
-                  Data cannot be recovered once purged.
+                  from the enterprise database. Data cannot be recovered once purged.
                 </div>
 
                 <div>

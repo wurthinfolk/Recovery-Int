@@ -4,13 +4,12 @@ import {
   AlertTriangle,
   RotateCcw,
   ChevronDown,
-  Cloud,
-  LogIn,
   LogOut,
-  RefreshCw,
+  KeyRound,
+  Shield,
 } from 'lucide-react';
-import { FilterState, UserProfile } from '../types';
-import { DEMO_USERS } from '../services/firebase';
+import type { FilterState, UserProfile } from '../types';
+import { ROLE_LABELS, canImportCheques } from '../services/permissions';
 
 interface TopBarProps {
   pageTitle: string;
@@ -18,15 +17,12 @@ interface TopBarProps {
   onUpdateFilters: (filters: Partial<FilterState>) => void;
   onResetFilters: () => void;
   currentUser: UserProfile;
-  onChangeUser: (user: UserProfile) => void;
   dataQualityIssuesCount: number;
   onOpenDataQuality: () => void;
   isSampleDataLoaded: boolean;
-  firebaseEmail: string | null;
-  syncingCloud: boolean;
-  onSignInGoogle: () => Promise<void>;
-  onSignOutGoogle: () => Promise<void>;
-  onSyncToCloud: () => Promise<void>;
+  onClearSampleData?: () => void;
+  onOpenChangePassword: () => void;
+  onSignOut: () => Promise<void>;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -35,20 +31,16 @@ export const TopBar: React.FC<TopBarProps> = ({
   onUpdateFilters,
   onResetFilters,
   currentUser,
-  onChangeUser,
   dataQualityIssuesCount,
   onOpenDataQuality,
   isSampleDataLoaded,
-  firebaseEmail,
-  syncingCloud,
-  onSignInGoogle,
-  onSignOutGoogle,
-  onSyncToCloud,
+  onClearSampleData,
+  onOpenChangePassword,
+  onSignOut,
 }) => {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
-  // Count active non-default filters
   let activeFilterCount = 0;
   if (filters.startDate || filters.endDate) activeFilterCount++;
   if (filters.cxNumber) activeFilterCount++;
@@ -86,65 +78,82 @@ export const TopBar: React.FC<TopBarProps> = ({
     setDateDropdownOpen(false);
   };
 
+  const canClearSample = canImportCheques(currentUser.role);
+
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between h-14 px-5 bg-white border-b border-slate-200 select-none shadow-2xs">
-      {/* Left Zone: Title & Context */}
-      <div className="flex items-center gap-4 min-w-0">
+    <header className="sticky top-0 z-20 flex items-center justify-between h-14 px-5 bg-white border-b border-slate-200 select-none">
+      {/* Left Zone: Title & Scope Context */}
+      <div className="flex items-center gap-3 min-w-0">
         <h1 className="text-base font-bold text-slate-900 tracking-tight truncate">
           {pageTitle}
         </h1>
 
         {isSampleDataLoaded && (
-          <span className="hidden sm:inline-flex items-center text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-medium">
-            Sample Register (10 Verified Records)
+          <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-medium">
+            <span>Sample Register</span>
+            {canClearSample && onClearSampleData && (
+              <button
+                type="button"
+                onClick={onClearSampleData}
+                className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-amber-200/70 hover:bg-amber-300 text-amber-950 rounded transition-colors"
+                title="Remove sample records from register"
+              >
+                Clear Sample
+              </button>
+            )}
+          </div>
+        )}
+
+        {currentUser.role === 'DIVISION_HEAD' && currentUser.assignedDivision && (
+          <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono truncate max-w-[240px]">
+            Division Scope: {currentUser.assignedDivision}
           </span>
         )}
 
         {(filters.division || filters.teamId || filters.divisionHeadId) && (
-          <span className="hidden md:inline-flex items-center text-[11px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono truncate max-w-[260px]">
-            Org Scope:{' '}
-            {filters.division ||
-              (filters.teamId ? 'Team Filter Active' : 'Division Head Filter Active')}
+          <span className="hidden lg:inline-flex items-center text-[11px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono truncate max-w-[240px]">
+            Filter: {filters.division || (filters.teamId ? 'Team' : 'Division Head')}
           </span>
         )}
       </div>
 
-      {/* Right Zone: Controls, Date Basis, Filters & User Switcher */}
-      <div className="flex items-center gap-3">
+      {/* Right Zone: Date Basis, Date Range, Data Quality, Authenticated Account Menu */}
+      <div className="flex items-center gap-2.5 shrink-0">
         {/* Date Basis Segmented Control */}
         <div className="hidden lg:flex items-center p-0.5 bg-slate-100 rounded-md text-[11px] font-medium border border-slate-200">
           <button
+            type="button"
             onClick={() => onUpdateFilters({ dateBasis: 'datePosted' })}
             className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
               filters.dateBasis === 'datePosted'
                 ? 'bg-white text-slate-900 shadow-xs font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
-            title="Use Date-Posted (Standard for financial trend reporting)"
           >
             Date-Posted
           </button>
           <button
+            type="button"
             onClick={() => onUpdateFilters({ dateBasis: 'effectiveDate' })}
             className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
               filters.dateBasis === 'effectiveDate'
                 ? 'bg-white text-slate-900 shadow-xs font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
-            title="Use Effective-Date (Value / cheque maturity basis)"
           >
             Effective-Date
           </button>
         </div>
 
-        {/* Date Range Selector Dropdown */}
+        {/* Date Range Selector */}
         <div className="relative">
           <button
+            type="button"
             onClick={() => setDateDropdownOpen(!dateDropdownOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md transition-colors whitespace-nowrap"
           >
             <Calendar className="w-3.5 h-3.5 text-slate-500" />
-            <span className="font-mono text-[11px]">
+            <span className="font-mono text-[11px] tabular-nums">
               {filters.startDate || filters.endDate
                 ? `${filters.startDate || 'Start'} → ${filters.endDate || 'Present'}`
                 : 'All Periods'}
@@ -157,30 +166,35 @@ export const TopBar: React.FC<TopBarProps> = ({
               <span className="font-semibold text-slate-900 block mb-2">Reporting Period</span>
               <div className="grid grid-cols-2 gap-1.5 mb-3">
                 <button
+                  type="button"
                   onClick={() => handlePresetDate('ALL')}
                   className="px-2 py-1 text-left text-slate-700 hover:bg-slate-100 rounded text-[11px]"
                 >
                   All Available History
                 </button>
                 <button
+                  type="button"
                   onClick={() => handlePresetDate('THIS_MONTH')}
                   className="px-2 py-1 text-left text-slate-700 hover:bg-slate-100 rounded text-[11px]"
                 >
                   Current Month
                 </button>
                 <button
+                  type="button"
                   onClick={() => handlePresetDate('LAST_30')}
                   className="px-2 py-1 text-left text-slate-700 hover:bg-slate-100 rounded text-[11px]"
                 >
                   Last 30 Days
                 </button>
                 <button
+                  type="button"
                   onClick={() => handlePresetDate('LAST_90')}
                   className="px-2 py-1 text-left text-slate-700 hover:bg-slate-100 rounded text-[11px]"
                 >
                   Last 90 Days
                 </button>
                 <button
+                  type="button"
                   onClick={() => handlePresetDate('YTD')}
                   className="px-2 py-1 text-left text-slate-700 hover:bg-slate-100 rounded text-[11px]"
                 >
@@ -212,159 +226,97 @@ export const TopBar: React.FC<TopBarProps> = ({
           )}
         </div>
 
-        {/* Active Filters Reset Button */}
+        {/* Active Filters Reset */}
         {activeFilterCount > 0 && (
           <button
+            type="button"
             onClick={onResetFilters}
-            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
-            title="Clear all filters"
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors whitespace-nowrap"
           >
             <RotateCcw className="w-3 h-3" />
-            <span>Clear Filters ({activeFilterCount})</span>
+            <span>Reset ({activeFilterCount})</span>
           </button>
         )}
 
-        {/* Data Quality Monitor Trigger */}
+        {/* Data Quality Monitor */}
         <button
+          type="button"
           onClick={onOpenDataQuality}
           className={`relative p-1.5 rounded-md border transition-colors ${
             dataQualityIssuesCount > 0
               ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
               : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
           }`}
-          title={`${dataQualityIssuesCount} data-quality notices detected`}
+          title={`${dataQualityIssuesCount} data-quality notices`}
         >
           <AlertTriangle className="w-4 h-4" />
           {dataQualityIssuesCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-600 text-[9px] font-mono font-bold text-white">
+            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-600 text-[9px] font-mono font-bold text-white tabular-nums">
               {dataQualityIssuesCount}
             </span>
           )}
         </button>
 
-        {/* Cloud Firestore Auth & Sync Button */}
-        {firebaseEmail ? (
-          <button
-            onClick={onSyncToCloud}
-            disabled={syncingCloud}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors whitespace-nowrap"
-            title={`Signed in as ${firebaseEmail}. Click to push current records to Cloud Firestore.`}
-          >
-            {syncingCloud ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Cloud className="w-3.5 h-3.5" />
-            )}
-            <span>{syncingCloud ? 'Syncing...' : 'Cloud Synced'}</span>
-          </button>
-        ) : (
-          <button
-            onClick={onSignInGoogle}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-md transition-colors whitespace-nowrap"
-            title="Sign in with Google to save & sync your data to Cloud Firestore"
-          >
-            <LogIn className="w-3.5 h-3.5 text-red-600" />
-            <span>Sign In to Sync Cloud</span>
-          </button>
-        )}
-
-        {/* User Role Switcher Dropdown (Allows testing RBAC) */}
+        {/* Authenticated User Account Menu (Zero role-switcher, Zero Google sign-in) */}
         <div className="relative">
           <button
+            type="button"
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
             className="flex items-center gap-2 pl-2 pr-2.5 py-1 text-xs font-medium text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md transition-colors"
           >
-            <div className="w-5 h-5 rounded bg-red-600 text-white flex items-center justify-center font-bold text-[10px]">
-              {currentUser.displayName.charAt(0)}
+            <div className="w-6 h-6 rounded bg-[#CC0000] text-white flex items-center justify-center font-bold text-[11px]">
+              {currentUser.displayName.charAt(0).toUpperCase()}
             </div>
-            <div className="hidden md:flex flex-col text-left leading-none">
-              <span className="text-[11px] font-semibold text-slate-900 truncate max-w-[120px]">
-                {currentUser.displayName.split(' ')[0]}
+            <div className="hidden md:flex flex-col text-left leading-tight">
+              <span className="text-[11px] font-semibold text-slate-900 truncate max-w-[140px]">
+                {currentUser.displayName}
               </span>
-              <span className="text-[9px] text-slate-500 font-mono">
-                {currentUser.role.replace('_', ' ')}
+              <span className="text-[10px] text-slate-500 font-mono">
+                {ROLE_LABELS[currentUser.role]}
               </span>
             </div>
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
 
           {userDropdownOpen && (
-            <div className="absolute right-0 mt-1 w-68 bg-white border border-slate-200 rounded-lg shadow-lg p-2 z-50 text-xs">
-              {/* Cloud Auth Status */}
-              <div className="px-2 py-2 mb-2 bg-slate-50 rounded border border-slate-200">
-                {firebaseEmail ? (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
-                      <Cloud className="w-3.5 h-3.5" />
-                      <span className="truncate">{firebaseEmail}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => {
-                          onSyncToCloud();
-                          setUserDropdownOpen(false);
-                        }}
-                        className="flex-1 px-2 py-1 text-[11px] font-medium bg-white border border-slate-300 hover:bg-slate-100 rounded text-slate-800"
-                      >
-                        Push Local Data to Cloud
-                      </button>
-                      <button
-                        onClick={() => {
-                          onSignOutGoogle();
-                          setUserDropdownOpen(false);
-                        }}
-                        className="px-2 py-1 text-[11px] font-medium text-red-600 hover:bg-red-50 rounded flex items-center gap-1"
-                      >
-                        <LogOut className="w-3 h-3" />
-                        <span>Sign Out</span>
-                      </button>
-                    </div>
+            <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg p-2 z-50 text-xs">
+              <div className="px-2.5 py-2 mb-1.5 bg-slate-50 rounded border border-slate-200 space-y-1">
+                <div className="font-semibold text-slate-900 truncate">{currentUser.displayName}</div>
+                <div className="text-[11px] font-mono text-slate-600">@{currentUser.username}</div>
+                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                  <Shield className="w-3 h-3 text-[#CC0000]" />
+                  <span>{ROLE_LABELS[currentUser.role]}</span>
+                </div>
+                {currentUser.role === 'DIVISION_HEAD' && currentUser.assignedDivision && (
+                  <div className="text-[10px] text-slate-600 pt-0.5 border-t border-slate-200">
+                    Scope: <strong>{currentUser.assignedDivision}</strong>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      onSignInGoogle();
-                      setUserDropdownOpen(false);
-                    }}
-                    className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded text-xs transition-colors"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Sign In with Google (Cloud DB)</span>
-                  </button>
                 )}
               </div>
 
-              <div className="px-2 py-1 border-b border-slate-100 mb-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                  Switch Active Role (RBAC Simulation)
-                </span>
-              </div>
-              <div className="space-y-0.5">
-                {DEMO_USERS.map((u) => (
-                  <button
-                    key={u.uid}
-                    onClick={() => {
-                      onChangeUser(u);
-                      setUserDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition-colors ${
-                      currentUser.uid === u.uid
-                        ? 'bg-red-50 text-red-700 font-semibold'
-                        : 'text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-medium text-xs">{u.displayName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">
-                        {u.role.replace('_', ' ')}
-                      </div>
-                    </div>
-                    {currentUser.uid === u.uid && (
-                      <span className="text-red-600 text-xs font-bold">✓</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setUserDropdownOpen(false);
+                  onOpenChangePassword();
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-2 text-slate-700 hover:bg-slate-100 rounded text-left font-medium transition-colors"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+                <span>Change Password</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setUserDropdownOpen(false);
+                  await onSignOut();
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-2 text-[#CC0000] hover:bg-red-50 rounded text-left font-semibold transition-colors mt-0.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
             </div>
           )}
         </div>

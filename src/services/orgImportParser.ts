@@ -171,8 +171,8 @@ export function makeTeamDocId(division: string, teamName: string): string {
   return `TEAM_${slugify(division)}__${slugify(teamName)}`;
 }
 
-export function makeDivisionHeadDocId(headName: string, division: string): string {
-  return `DH_${slugify(division)}__${slugify(headName)}`;
+export function makeDivisionHeadDocId(headName: string, _division?: string): string {
+  return `DH_${slugify(headName)}`;
 }
 
 export function normalizeEmployeeStatus(raw: string): {
@@ -618,15 +618,41 @@ export async function parseAdmMasterFile(
     if (a.empId) existingAdmByEmp.set(canonicalKey(a.empId), a);
   }
 
-  // Track Division Heads scoped by (divisionCanonical + headCanonicalName) AND globally by headCanonicalName
+  // Track Division Heads globally by canonical head name so one person overseeing multiple divisions
+  // is consolidated into a single DivisionHeadMaster with all assigned divisions combined.
+  const dedupeDivisions = (divs: string[]): string[] => {
+    const map = new Map<string, string>();
+    for (const raw of divs) {
+      const clean = normalizeDisplayText(raw);
+      if (!clean) continue;
+      const k = canonicalKey(clean);
+      if (!map.has(k)) map.set(k, clean);
+    }
+    return Array.from(map.values());
+  };
+
   const divHeadMap = new Map<string, DivisionHeadMaster>();
-  const headNameToDivisions = new Map<string, Set<string>>();
   for (const dh of existingDivisionHeads) {
     const cName = canonicalKey(dh.name);
-    if (!headNameToDivisions.has(cName)) headNameToDivisions.set(cName, new Set());
-    for (const d of dh.divisions || []) {
-      headNameToDivisions.get(cName)!.add(canonicalKey(d));
-      divHeadMap.set(`${canonicalKey(d)}::${cName}`, { ...dh });
+    const existing = divHeadMap.get(cName);
+    if (existing) {
+      divHeadMap.set(cName, {
+        ...existing,
+        id: makeDivisionHeadDocId(existing.name),
+        divisions: dedupeDivisions([...(existing.divisions || []), ...(dh.divisions || [])]),
+        verificationStatus:
+          existing.verificationStatus === 'NEEDS_VERIFICATION' &&
+          !(existing.verificationReason || '').toLowerCase().includes('multiple divisions')
+            ? 'NEEDS_VERIFICATION'
+            : 'VERIFIED',
+        verificationReason: undefined,
+      });
+    } else {
+      divHeadMap.set(cName, {
+        ...dh,
+        id: makeDivisionHeadDocId(dh.name),
+        divisions: dedupeDivisions(dh.divisions || []),
+      });
     }
   }
 
@@ -635,14 +661,15 @@ export async function parseAdmMasterFile(
     teamMap.set(t.canonicalKey || `${canonicalKey(t.division)}::${canonicalKey(t.teamName)}`, { ...t });
   }
 
-  // First pass: register all Division Head names across Divisions inside this file so cross-division clashes are caught in both directions
+  // First pass: register all Division Head names and collect all divisions they oversee in this file
+  const headNameToDivisions = new Map<string, string[]>();
   for (const { data: row } of rawRows) {
     const rawDiv = normalizeDisplayText(row[mapping.division]);
     const rawHead = normalizeDisplayText(row[mapping.divisionHead]);
     if (rawDiv && rawHead) {
       const cName = canonicalKey(rawHead);
-      if (!headNameToDivisions.has(cName)) headNameToDivisions.set(cName, new Set());
-      headNameToDivisions.get(cName)!.add(canonicalKey(rawDiv));
+      if (!headNameToDivisions.has(cName)) headNameToDivisions.set(cName, []);
+      headNameToDivisions.get(cName)!.push(rawDiv);
     }
   }
 
@@ -788,42 +815,47 @@ export async function parseAdmMasterFile(
       return;
     }
 
-    // Resolve Division Head (avoiding duplicates due to whitespace/case, flagging cross-division name matches)
+    // Resolve Division Head uniquely by canonical person name (merging all responsible Divisions)
     const cDiv = canonicalKey(division);
     const cHead = canonicalKey(divisionHeadName);
-    const headDivisions = headNameToDivisions.get(cHead) || new Set([cDiv]);
-    const appearsInMultipleDivisions = headDivisions.size > 1;
-    const headKey = `${cDiv}::${cHead}`;
+    const fileDivisionsForHead = headNameToDivisions.get(cHead) || [division];
 
-    let resolvedHead = divHeadMap.get(headKey);
+    let resolvedHead = divHeadMap.get(cHead);
     if (!resolvedHead) {
       resolvedHead = {
-        id: makeDivisionHeadDocId(divisionHeadName, division),
+        id: makeDivisionHeadDocId(divisionHeadName),
         name: divisionHeadName,
         canonicalName: cHead,
-        divisions: [division],
-        verificationStatus: appearsInMultipleDivisions ? 'NEEDS_VERIFICATION' : 'VERIFIED',
-        verificationReason: appearsInMultipleDivisions
-          ? `Division Head name "${divisionHeadName}" appears in multiple divisions (${Array.from(headDivisions).join(', ')}). Verify identity before merging.`
-          : undefined,
+        divisions: dedupeDivisions(fileDivisionsForHead),
+        verificationStatus: 'VERIFIED',
         createdAt: now,
         updatedAt: now,
       };
-      divHeadMap.set(headKey, resolvedHead);
-    } else if (appearsInMultipleDivisions) {
+      divHeadMap.set(cHead, resolvedHead);
+    } else {
+      const mergedDivisions = dedupeDivisions([
+        ...(resolvedHead.divisions || []),
+        division,
+        ...fileDivisionsForHead,
+      ]);
+      const isCrossDivWarning =
+        (resolvedHead.verificationReason || '').toLowerCase().includes('multiple divisions') ||
+        (resolvedHead.verificationReason || '').toLowerCase().includes('another division');
       resolvedHead = {
         ...resolvedHead,
-        verificationStatus: 'NEEDS_VERIFICATION',
-        verificationReason: `Division Head name "${divisionHeadName}" appears in multiple divisions (${Array.from(headDivisions).join(', ')}). Verify identity before merging.`,
+        id: makeDivisionHeadDocId(resolvedHead.name || divisionHeadName),
+        divisions: mergedDivisions,
+        verificationStatus:
+          resolvedHead.verificationStatus === 'NEEDS_VERIFICATION' && !isCrossDivWarning
+            ? 'NEEDS_VERIFICATION'
+            : 'VERIFIED',
+        verificationReason:
+          resolvedHead.verificationStatus === 'NEEDS_VERIFICATION' && !isCrossDivWarning
+            ? resolvedHead.verificationReason
+            : undefined,
         updatedAt: now,
       };
-      divHeadMap.set(headKey, resolvedHead);
-    }
-
-    if (appearsInMultipleDivisions) {
-      warnings.push(
-        `Division Head "${divisionHeadName}" appears in multiple divisions — flagged for verification rather than auto-merging.`
-      );
+      divHeadMap.set(cHead, resolvedHead);
     }
 
     // Resolve Team scoped uniquely within Division
@@ -889,7 +921,7 @@ export async function parseAdmMasterFile(
     }
 
     const requiresManualReview =
-      warnings.length > 0 || appearsInMultipleDivisions || hasConflict || hasOrgAssignmentChange;
+      warnings.length > 0 || hasConflict || hasOrgAssignmentChange;
 
     // Do NOT silently replace Team or Division assignment on existing ADM#
     const approvedForCommit =
@@ -927,12 +959,8 @@ export async function parseAdmMasterFile(
       rawEmployeeStatus: rawEmployeeStatus || statusCheck.status,
       mobileNo,
       email,
-      verificationStatus: appearsInMultipleDivisions || hasConflict ? 'NEEDS_VERIFICATION' : 'VERIFIED',
-      verificationReason: appearsInMultipleDivisions
-        ? resolvedHead.verificationReason
-        : hasConflict
-          ? warnings.join('; ')
-          : undefined,
+      verificationStatus: hasConflict ? 'NEEDS_VERIFICATION' : 'VERIFIED',
+      verificationReason: hasConflict ? warnings.join('; ') : undefined,
       assignmentHistory: [...(existingByAdm?.assignmentHistory || []), ...historyEntry],
       createdAt: existingByAdm?.createdAt || now,
       createdBy: existingByAdm?.createdBy || currentUser.displayName,

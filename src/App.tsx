@@ -1,9 +1,9 @@
 /**
  * WÜRTH Lanka — Cheque Return Intelligence & Recovery Analytics Platform
- * Main Enterprise Application Container
+ * Main Enterprise Application Container (Authenticated & Role-Scoped)
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ChequeRecord,
   FilterState,
@@ -16,6 +16,8 @@ import {
   TeamMaster,
   AdmMasterRecord,
   CustomerMasterRecord,
+  CrossTeamBenchmarkSummary,
+  NavItemId,
 } from './types';
 import {
   filterRecords,
@@ -29,26 +31,15 @@ import {
   DEFAULT_CONFIG,
 } from './services/analytics';
 import {
-  getChequeRecords,
   saveChequeRecord,
   saveBatchChequeRecords,
   addRecoveryAction,
-  getAnalyticalConfig,
   saveAnalyticalConfig,
   resetDataset,
   clearEntireDatabase,
   ClearDatabaseOptions,
   ClearDatabaseResult,
-  testConnection,
-  signInWithGoogle,
-  signOutFirebase,
-  subscribeAuthState,
-  syncLocalDataToFirestore,
-  hasRemoteChequeRecords,
-  getDivisionHeadMasterRecords,
-  getTeamMasterRecords,
-  getAdmMasterRecords,
-  getCustomerMasterRecords,
+  clearSampleRecordsOnly,
   saveAdmMasterBatch,
   saveCustomerMasterBatch,
   mapCustomerToAdmMaster,
@@ -56,15 +47,36 @@ import {
   saveTeamMaster,
   saveAdmMaster,
   saveCustomerMaster,
+  migrateLegacyLocalDataIfNeeded,
   SaveDivisionHeadInput,
   SaveTeamInput,
   SaveAdmInput,
   SaveCustomerInput,
-  DEMO_USERS,
 } from './services/firebase';
-import { Sidebar, NavItemId } from './components/Sidebar';
+import {
+  ApiError,
+  apiBootstrapData,
+  apiGetAuthMe,
+  apiGetCrossTeamBenchmarks,
+  apiLogout,
+  apiRecordAuditEvent,
+} from './services/api';
+import {
+  ALL_NAV_TABS,
+  canAccessTab,
+  canEditCheques,
+  canImportCheques,
+  canImportOrgMaster,
+  canManageUsers,
+  getDefaultTabForRole,
+} from './services/permissions';
+import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { WurthLogo } from './components/WurthLogo';
+import { LoginScreen } from './components/LoginScreen';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { AccessDeniedView } from './components/AccessDeniedView';
+import { UserManagement } from './components/UserManagement';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { ChequeRegister } from './components/ChequeRegister';
 import { AddChequeForm } from './components/AddChequeForm';
@@ -83,129 +95,275 @@ import { SettingsAndAccessControl } from './components/SettingsAndAccessControl'
 import { DataQualityMonitorModal, auditDataQuality } from './components/DataQualityMonitorModal';
 import { ChequeDetailModal } from './components/ChequeDetailModal';
 
+const INITIAL_FILTERS: FilterState = {
+  dateBasis: 'datePosted',
+  startDate: '',
+  endDate: '',
+  cxNumber: '',
+  admCode: '',
+  division: '',
+  teamId: '',
+  divisionHeadId: '',
+  returnReason: '',
+  recoveryStatus: '',
+  priority: '',
+  assignedOfficer: '',
+  searchQuery: '',
+};
+
+function parseHashTab(): NavItemId | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.location.hash.replace(/^#\/?/, '').trim();
+  if (!raw) return null;
+  const candidate = raw.split('?')[0] as NavItemId;
+  return ALL_NAV_TABS.includes(candidate) ? candidate : null;
+}
+
 export default function App() {
-  // App Core State
+  // Authentication & Session State
+  const [authChecking, setAuthChecking] = useState(true);
+  const [bootstrapInitialized, setBootstrapInitialized] = useState(true);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
+
+  // App Core Domain State
   const [records, setRecords] = useState<ChequeRecord[]>([]);
   const [divisionHeads, setDivisionHeads] = useState<DivisionHeadMaster[]>([]);
   const [teams, setTeams] = useState<TeamMaster[]>([]);
   const [admsMaster, setAdmsMaster] = useState<AdmMasterRecord[]>([]);
   const [customersMaster, setCustomersMaster] = useState<CustomerMasterRecord[]>([]);
+  const [benchmarks, setBenchmarks] = useState<CrossTeamBenchmarkSummary | null>(null);
+  const [config, setConfig] = useState<AnalyticalConfig>(DEFAULT_CONFIG);
+
+  // Navigation & UI State
+  const [dataLoading, setDataLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<NavItemId>('executive-dashboard');
+  const [deniedAttemptTab, setDeniedAttemptTab] = useState<NavItemId | null>(null);
   const [importMode, setImportMode] = useState<ImportMode>('ADM_MASTER');
   const [orgInitialSubTab, setOrgInitialSubTab] = useState<OrgSubTab>('hierarchy');
-
-  const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_USERS[0]); // Default to Recovery Officer
-  const [activeTab, setActiveTab] = useState<NavItemId>('executive-dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [config, setConfig] = useState<AnalyticalConfig>(DEFAULT_CONFIG);
-  const [firebaseEmail, setFirebaseEmail] = useState<string | null>(null);
-  const [syncingCloud, setSyncingCloud] = useState(false);
-  const [cloudNotice, setCloudNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const skipNextAuthReloadRef = useRef(false);
+  const [statusNotice, setStatusNotice] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   // Filters State
-  const [filters, setFilters] = useState<FilterState>({
-    dateBasis: 'datePosted',
-    startDate: '',
-    endDate: '',
-    cxNumber: '',
-    admCode: '',
-    division: '',
-    teamId: '',
-    divisionHeadId: '',
-    returnReason: '',
-    recoveryStatus: '',
-    priority: '',
-    assignedOfficer: '',
-    searchQuery: '',
-  });
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
 
   // Modals and Drawers
   const [selectedRecord, setSelectedRecord] = useState<ChequeRecord | null>(null);
   const [editingRecord, setEditingRecord] = useState<ChequeRecord | null>(null);
   const [dataQualityModalOpen, setDataQualityModalOpen] = useState(false);
 
-  const loadAllState = async () => {
-    const [
-      loadedRecords,
-      loadedConfig,
-      loadedHeads,
-      loadedTeams,
-      loadedAdms,
-      loadedCustomers,
-    ] = await Promise.all([
-      getChequeRecords(),
-      getAnalyticalConfig(),
-      getDivisionHeadMasterRecords(),
-      getTeamMasterRecords(),
-      getAdmMasterRecords(),
-      getCustomerMasterRecords(),
-    ]);
-    return {
-      loadedRecords,
-      loadedConfig,
-      loadedHeads,
-      loadedTeams,
-      loadedAdms,
-      loadedCustomers,
-    };
+  const pageTitles: Record<NavItemId, string> = {
+    'executive-dashboard': 'Executive Dashboard',
+    'cheque-register': 'Cheque Return Register',
+    'add-cheque': editingRecord ? 'Edit Returned Cheque' : 'Add Returned Cheque',
+    'customer-intelligence': 'Customer Intelligence',
+    'adm-performance': 'ADM Performance',
+    'team-dashboard': 'Team Recovery & Exposure Dashboard',
+    'division-head-dashboard': 'Division Head Dashboard',
+    'organization-management': 'Organization Master & Hierarchy',
+    'reason-analysis': 'Return Reason Analysis',
+    'recovery-actions': 'Recovery Action Centre',
+    'trends-anomalies': 'Trends & Anomalies',
+    'reports-exports': 'Reports & Exports',
+    'data-import': 'Data Import (Excel & CSV)',
+    'audit-log': 'Audit Log',
+    'user-management': 'User Management',
+    settings: 'Settings & Access Control',
   };
 
-  // Initial load & Firebase Auth subscription
-  useEffect(() => {
-    let mounted = true;
-    async function init() {
-      setLoading(true);
-      try {
-        await testConnection();
-        const data = await loadAllState();
-        if (mounted) {
-          setRecords(data.loadedRecords);
-          setConfig(data.loadedConfig);
-          setDivisionHeads(data.loadedHeads);
-          setTeams(data.loadedTeams);
-          setAdmsMaster(data.loadedAdms);
-          setCustomersMaster(data.loadedCustomers);
-        }
-      } catch (err) {
-        console.error('Initialization error:', err);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    init();
-
-    const unsubscribe = subscribeAuthState(async (user) => {
-      if (!mounted) return;
-      setFirebaseEmail(user?.email ?? null);
-      if (skipNextAuthReloadRef.current) {
-        skipNextAuthReloadRef.current = false;
-        return;
-      }
-      if (user) {
-        try {
-          const data = await loadAllState();
-          if (mounted) {
-            setRecords(data.loadedRecords);
-            setConfig(data.loadedConfig);
-            setDivisionHeads(data.loadedHeads);
-            setTeams(data.loadedTeams);
-            setAdmsMaster(data.loadedAdms);
-            setCustomersMaster(data.loadedCustomers);
-          }
-        } catch (err) {
-          console.error('Auth refresh error:', err);
-        }
-      }
-    });
-
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
+  const resetDomainState = useCallback(() => {
+    setRecords([]);
+    setDivisionHeads([]);
+    setTeams([]);
+    setAdmsMaster([]);
+    setCustomersMaster([]);
+    setBenchmarks(null);
+    setConfig(DEFAULT_CONFIG);
+    setSelectedRecord(null);
+    setEditingRecord(null);
+    setDataQualityModalOpen(false);
+    setDeniedAttemptTab(null);
+    setFilters(INITIAL_FILTERS);
   }, []);
 
-  // Filtered Records (derived, including organizational hierarchy filters)
+  const loadScopedApplicationData = useCallback(
+    async (user: UserProfile) => {
+      setDataLoading(true);
+      try {
+        let [payload, benchmarkData] = await Promise.all([
+          apiBootstrapData(),
+          apiGetCrossTeamBenchmarks().catch(() => null),
+        ]);
+
+        // If a System Administrator had production data cached locally before server persistence, migrate it once cleanly
+        if (
+          user.role === 'SYSTEM_ADMIN' &&
+          payload.chequeRecords.filter((r) => !r.isSample).length === 0 &&
+          payload.adms.length === 0 &&
+          payload.customers.length === 0
+        ) {
+          const migratedCount = await migrateLegacyLocalDataIfNeeded(user);
+          if (migratedCount > 0) {
+            [payload, benchmarkData] = await Promise.all([
+              apiBootstrapData(),
+              apiGetCrossTeamBenchmarks().catch(() => null),
+            ]);
+            setStatusNotice({
+              type: 'success',
+              message: `Migrated ${migratedCount} previously uploaded production record(s) to the centralized database.`,
+            });
+          }
+        }
+
+        setRecords(payload.chequeRecords);
+        setDivisionHeads(payload.divisionHeads);
+        setTeams(payload.teams);
+        setAdmsMaster(payload.adms);
+        setCustomersMaster(payload.customers);
+        setConfig(payload.config);
+        setBenchmarks(benchmarkData);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          setCurrentUser(null);
+          resetDomainState();
+          return;
+        }
+        setStatusNotice({
+          type: 'error',
+          message:
+            err instanceof Error ? err.message : 'Unable to load authorized application data.',
+        });
+      } finally {
+        setDataLoading(false);
+      }
+    },
+    [resetDomainState]
+  );
+
+  const navigateWithRbac = useCallback(
+    (targetTab: NavItemId, user: UserProfile, logUnauthorized = true) => {
+      if (!canAccessTab(user.role, targetTab)) {
+        setDeniedAttemptTab(targetTab);
+        setEditingRecord(null);
+        if (logUnauthorized) {
+          apiRecordAuditEvent({
+            recordId: targetTab,
+            recordType: 'ACCESS_CONTROL',
+            operation: 'UNAUTHORIZED_ACCESS',
+            details: `Blocked attempt by @${user.username} (${user.role}) to access restricted section "${targetTab}".`,
+          }).catch(() => {});
+        }
+        return false;
+      }
+
+      setDeniedAttemptTab(null);
+      setEditingRecord(null);
+      if (targetTab !== 'organization-management') {
+        setOrgInitialSubTab('hierarchy');
+      }
+      if (targetTab === 'data-import' && !canImportOrgMaster(user.role)) {
+        setImportMode('CHEQUE_REGISTER');
+      }
+      setActiveTab(targetTab);
+      if (typeof window !== 'undefined') {
+        const desiredHash = `#/${targetTab}`;
+        if (window.location.hash !== desiredHash) {
+          window.location.hash = desiredHash;
+        }
+      }
+      return true;
+    },
+    []
+  );
+
+  const applyInitialTabForUser = useCallback(
+    (user: UserProfile) => {
+      const requestedFromHash = parseHashTab();
+      if (requestedFromHash) {
+        navigateWithRbac(requestedFromHash, user, true);
+      } else {
+        const defaultTab = getDefaultTabForRole(user.role);
+        navigateWithRbac(defaultTab, user, false);
+      }
+      if (!canImportOrgMaster(user.role)) {
+        setImportMode('CHEQUE_REGISTER');
+      } else {
+        setImportMode('ADM_MASTER');
+      }
+    },
+    [navigateWithRbac]
+  );
+
+  // Initial session hydration
+  useEffect(() => {
+    let mounted = true;
+    async function restoreSession() {
+      setAuthChecking(true);
+      try {
+        const session = await apiGetAuthMe();
+        if (!mounted) return;
+        setBootstrapInitialized(session.bootstrapInitialized);
+        if (session.authenticated && session.user) {
+          setCurrentUser(session.user);
+          applyInitialTabForUser(session.user);
+          await loadScopedApplicationData(session.user);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch {
+        if (mounted) setCurrentUser(null);
+      } finally {
+        if (mounted) setAuthChecking(false);
+      }
+    }
+    restoreSession();
+    return () => {
+      mounted = false;
+    };
+  }, [applyInitialTabForUser, loadScopedApplicationData]);
+
+  // Listen to browser hash URL changes to enforce RBAC against direct URL manipulation
+  useEffect(() => {
+    if (!currentUser) return;
+    const handleHashChange = () => {
+      const hashTab = parseHashTab();
+      if (!hashTab) return;
+      navigateWithRbac(hashTab, currentUser, true);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [currentUser, navigateWithRbac]);
+
+  // Login handler
+  const handleLoginSuccess = async (user: UserProfile) => {
+    setBootstrapInitialized(true);
+    setStatusNotice(null);
+    setCurrentUser(user);
+    setFilters(INITIAL_FILTERS);
+    applyInitialTabForUser(user);
+    await loadScopedApplicationData(user);
+  };
+
+  // Logout handler
+  const handleSignOut = async () => {
+    try {
+      await apiLogout();
+    } catch {
+      // ignore logout error and clear local state anyway
+    }
+    setCurrentUser(null);
+    setChangePasswordModalOpen(false);
+    setStatusNotice(null);
+    resetDomainState();
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.location.hash = '';
+    }
+  };
+
+  // Filtered Records (derived from server-scoped records + active UI filters)
   const filteredRecords = useMemo(() => {
     return filterRecords(records, filters, customersMaster, admsMaster);
   }, [records, filters, customersMaster, admsMaster]);
@@ -251,41 +409,43 @@ export default function App() {
     return auditDataQuality(records);
   }, [records]);
 
-  // Handlers
+  // Filter Handlers
   const handleUpdateFilters = (overrides: Partial<FilterState>) => {
     setFilters((prev) => ({ ...prev, ...overrides }));
   };
 
   const handleResetFilters = () => {
-    setFilters({
-      dateBasis: 'datePosted',
-      startDate: '',
-      endDate: '',
-      cxNumber: '',
-      admCode: '',
-      division: '',
-      teamId: '',
-      divisionHeadId: '',
-      returnReason: '',
-      recoveryStatus: '',
-      priority: '',
-      assignedOfficer: '',
-      searchQuery: '',
-    });
+    setFilters(INITIAL_FILTERS);
   };
 
+  // Domain Refresh Helpers
+  const refreshAllData = async () => {
+    const [payload, benchmarkData] = await Promise.all([
+      apiBootstrapData(),
+      apiGetCrossTeamBenchmarks().catch(() => null),
+    ]);
+    setRecords(payload.chequeRecords);
+    setDivisionHeads(payload.divisionHeads);
+    setTeams(payload.teams);
+    setAdmsMaster(payload.adms);
+    setCustomersMaster(payload.customers);
+    setConfig(payload.config);
+    setBenchmarks(benchmarkData);
+  };
+
+  // Mutating Handlers (with RBAC validation)
   const handleSaveCheque = async (savedRecord: ChequeRecord, isEdit: boolean) => {
+    if (!currentUser) return;
     await saveChequeRecord(savedRecord, currentUser, isEdit);
-    const updated = await getChequeRecords();
-    setRecords(updated);
+    await refreshAllData();
     setEditingRecord(null);
-    setActiveTab('cheque-register');
+    navigateWithRbac('cheque-register', currentUser, false);
   };
 
   const handleImportBatch = async (newRecords: ChequeRecord[], batch: ImportBatch) => {
+    if (!currentUser) return;
     await saveBatchChequeRecords(newRecords, batch, currentUser);
-    const updated = await getChequeRecords();
-    setRecords(updated);
+    await refreshAllData();
   };
 
   const handleAdmImportComplete = async (
@@ -294,66 +454,51 @@ export default function App() {
     upsertedHeads: DivisionHeadMaster[],
     batch: ImportBatch
   ) => {
+    if (!currentUser) return;
     await saveAdmMasterBatch(upsertedAdms, upsertedTeams, upsertedHeads, batch, currentUser);
-    const [freshHeads, freshTeams, freshAdms] = await Promise.all([
-      getDivisionHeadMasterRecords(),
-      getTeamMasterRecords(),
-      getAdmMasterRecords(),
-    ]);
-    setDivisionHeads(freshHeads);
-    setTeams(freshTeams);
-    setAdmsMaster(freshAdms);
+    await refreshAllData();
   };
 
   const handleCustomerImportComplete = async (
     upsertedCustomers: CustomerMasterRecord[],
     batch: ImportBatch
   ) => {
+    if (!currentUser) return;
     await saveCustomerMasterBatch(upsertedCustomers, batch, currentUser);
-    const freshCustomers = await getCustomerMasterRecords();
-    setCustomersMaster(freshCustomers);
+    await refreshAllData();
   };
 
   const handleMapCustomerToAdm = async (
     customer: CustomerMasterRecord,
     adm: AdmMasterRecord
   ) => {
+    if (!currentUser) return;
     await mapCustomerToAdmMaster(customer, adm, currentUser);
-    const freshCustomers = await getCustomerMasterRecords();
-    setCustomersMaster(freshCustomers);
-  };
-
-  const refreshOrgMasterState = async () => {
-    const [freshHeads, freshTeams, freshAdms, freshCustomers] = await Promise.all([
-      getDivisionHeadMasterRecords(),
-      getTeamMasterRecords(),
-      getAdmMasterRecords(),
-      getCustomerMasterRecords(),
-    ]);
-    setDivisionHeads(freshHeads);
-    setTeams(freshTeams);
-    setAdmsMaster(freshAdms);
-    setCustomersMaster(freshCustomers);
+    await refreshAllData();
   };
 
   const handleSaveDivisionHead = async (input: SaveDivisionHeadInput) => {
+    if (!currentUser) return;
     await saveDivisionHeadMaster(input, currentUser);
-    await refreshOrgMasterState();
+    await refreshAllData();
   };
 
   const handleSaveTeam = async (input: SaveTeamInput) => {
+    if (!currentUser) return;
     await saveTeamMaster(input, currentUser);
-    await refreshOrgMasterState();
+    await refreshAllData();
   };
 
   const handleSaveAdm = async (input: SaveAdmInput) => {
+    if (!currentUser) return;
     await saveAdmMaster(input, currentUser);
-    await refreshOrgMasterState();
+    await refreshAllData();
   };
 
   const handleSaveCustomer = async (input: SaveCustomerInput) => {
+    if (!currentUser) return;
     await saveCustomerMaster(input, currentUser);
-    await refreshOrgMasterState();
+    await refreshAllData();
   };
 
   const handleLogRecoveryAction = async (
@@ -368,6 +513,7 @@ export default function App() {
       newStatus?: RecoveryStatus;
     }
   ) => {
+    if (!currentUser) return;
     let newRecovered = record.recoveredAmount || 0;
     if (details.recoveredAmount) {
       newRecovered += details.recoveredAmount;
@@ -376,7 +522,8 @@ export default function App() {
     }
 
     const newRemaining = Math.max(0, record.amount - newRecovered);
-    const nextStatus = details.newStatus || (newRemaining === 0 ? 'RECOVERED' : record.recoveryStatus);
+    const nextStatus =
+      details.newStatus || (newRemaining === 0 ? 'RECOVERED' : record.recoveryStatus);
 
     const updatedCheque: ChequeRecord = {
       ...record,
@@ -411,176 +558,112 @@ export default function App() {
       currentUser
     );
 
-    const fresh = await getChequeRecords();
-    setRecords(fresh);
+    await refreshAllData();
     if (selectedRecord && selectedRecord.id === record.id) {
       setSelectedRecord(updatedCheque);
     }
   };
 
   const handleResetDataset = async (loadSample: boolean) => {
-    const updated = await resetDataset(loadSample, currentUser);
-    setRecords(updated);
+    if (!currentUser) return;
+    await resetDataset(loadSample, currentUser);
+    await refreshAllData();
+  };
+
+  const handleClearSampleData = async () => {
+    if (!currentUser) return;
+    const remaining = await clearSampleRecordsOnly(currentUser);
+    await refreshAllData();
+    setStatusNotice({
+      type: 'success',
+      message:
+        remaining.length > 0
+          ? `Removed sample records. Showing ${remaining.length} production cheque record(s).`
+          : 'Sample records removed. Register is ready for your production cheque import.',
+    });
   };
 
   const handlePurgeDatabase = async (options: ClearDatabaseOptions): Promise<ClearDatabaseResult> => {
+    if (!currentUser) {
+      throw new Error('Authentication required.');
+    }
     const res = await clearEntireDatabase(currentUser, options);
-    if (options.clearCheques) {
-      setRecords([]);
-    }
-    if (options.clearOrgMaster) {
-      setDivisionHeads([]);
-      setTeams([]);
-      setAdmsMaster([]);
-      setCustomersMaster([]);
-    }
+    await refreshAllData();
     return res;
   };
 
   const handleUpdateConfig = async (newConfig: AnalyticalConfig) => {
+    if (!currentUser) return;
     setConfig(newConfig);
     await saveAnalyticalConfig(newConfig, currentUser);
+    await refreshAllData();
   };
 
+  // Cross-view Drilldowns
   const handleCustomerDrilldown = (cxNumber: string) => {
+    if (!currentUser) return;
     handleUpdateFilters({ cxNumber });
-    setActiveTab('cheque-register');
+    navigateWithRbac('cheque-register', currentUser, false);
   };
 
   const handleAdmDrilldown = (admCode: string) => {
+    if (!currentUser) return;
     handleUpdateFilters({ admCode });
-    setActiveTab('cheque-register');
+    navigateWithRbac('cheque-register', currentUser, false);
   };
 
   const handleTeamDrilldown = (teamId: string) => {
+    if (!currentUser) return;
     handleUpdateFilters({ teamId });
-    setActiveTab('cheque-register');
+    navigateWithRbac('cheque-register', currentUser, false);
   };
 
   const handleDivisionHeadDrilldown = (divisionHeadId: string) => {
+    if (!currentUser) return;
     handleUpdateFilters({ divisionHeadId });
-    setActiveTab('cheque-register');
+    navigateWithRbac('cheque-register', currentUser, false);
   };
 
   const handleDivisionDrilldown = (division: string) => {
+    if (!currentUser) return;
     handleUpdateFilters({ division });
-    setActiveTab('team-dashboard');
+    navigateWithRbac('team-dashboard', currentUser, false);
   };
 
   const handleReasonDrilldown = (reason: string) => {
+    if (!currentUser) return;
     handleUpdateFilters({ returnReason: reason });
-    setActiveTab('cheque-register');
+    navigateWithRbac('cheque-register', currentUser, false);
   };
 
-  const handleSignInGoogle = async () => {
-    setCloudNotice(null);
-    skipNextAuthReloadRef.current = true;
-    try {
-      const user = await signInWithGoogle();
-      setFirebaseEmail(user.email ?? null);
-      setSyncingCloud(true);
+  // 1. Initial authentication check splash
+  if (authChecking) {
+    return (
+      <div className="min-h-screen w-full bg-white flex flex-col items-center justify-center gap-3 text-xs text-slate-600">
+        <WurthLogo size="lg" />
+        <span>Verifying enterprise session...</span>
+      </div>
+    );
+  }
 
-      const remoteExists = await hasRemoteChequeRecords();
-      if (!remoteExists && (records.length > 0 || admsMaster.length > 0 || customersMaster.length > 0)) {
-        const res = await syncLocalDataToFirestore(currentUser);
-        const data = await loadAllState();
-        setRecords(data.loadedRecords);
-        setConfig(data.loadedConfig);
-        setDivisionHeads(data.loadedHeads);
-        setTeams(data.loadedTeams);
-        setAdmsMaster(data.loadedAdms);
-        setCustomersMaster(data.loadedCustomers);
-        setCloudNotice({
-          type: 'success',
-          message: `Signed in as ${user.email} and synced ${res.syncedCheques} cheque records & ${res.syncedOrgMaster} org master records to Cloud Firestore.`,
-        });
-      } else {
-        const data = await loadAllState();
-        setRecords(data.loadedRecords);
-        setConfig(data.loadedConfig);
-        setDivisionHeads(data.loadedHeads);
-        setTeams(data.loadedTeams);
-        setAdmsMaster(data.loadedAdms);
-        setCustomersMaster(data.loadedCustomers);
-        setCloudNotice({
-          type: 'success',
-          message: `Connected to Cloud Firestore as ${user.email}. Click "Cloud Synced" anytime to push local edits.`,
-        });
-      }
-    } catch (err: unknown) {
-      skipNextAuthReloadRef.current = false;
-      const msg = err instanceof Error ? err.message : 'Google Sign-In failed or was cancelled.';
-      setCloudNotice({ type: 'error', message: msg });
-    } finally {
-      setSyncingCloud(false);
-    }
-  };
+  // 2. Unauthenticated state -> Dedicated Login Screen only
+  if (!currentUser) {
+    return (
+      <LoginScreen
+        bootstrapInitialized={bootstrapInitialized}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
 
-  const handleSignOutGoogle = async () => {
-    try {
-      await signOutFirebase();
-      setFirebaseEmail(null);
-      setCloudNotice({ type: 'success', message: 'Signed out of Cloud Firestore sync.' });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Sign-out failed.';
-      setCloudNotice({ type: 'error', message: msg });
-    }
-  };
-
-  const handleSyncToCloud = async () => {
-    setSyncingCloud(true);
-    setCloudNotice(null);
-    try {
-      const res = await syncLocalDataToFirestore(currentUser);
-      const data = await loadAllState();
-      setRecords(data.loadedRecords);
-      setConfig(data.loadedConfig);
-      setDivisionHeads(data.loadedHeads);
-      setTeams(data.loadedTeams);
-      setAdmsMaster(data.loadedAdms);
-      setCustomersMaster(data.loadedCustomers);
-      setCloudNotice({
-        type: 'success',
-        message: `Cloud Firestore updated: ${res.syncedCheques} cheques, ${res.syncedOrgMaster} org master docs, ${res.syncedActions} recovery actions, ${res.syncedBatches} import batches.`,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Cloud sync failed.';
-      setCloudNotice({ type: 'error', message: msg });
-    } finally {
-      setSyncingCloud(false);
-    }
-  };
-
-  const pageTitles: Record<NavItemId, string> = {
-    'executive-dashboard': 'Executive Dashboard',
-    'cheque-register': 'Cheque Return Register',
-    'add-cheque': editingRecord ? 'Edit Returned Cheque' : 'Add Returned Cheque',
-    'customer-intelligence': 'Customer Intelligence',
-    'adm-performance': 'ADM Performance',
-    'team-dashboard': 'Team Recovery & Exposure Dashboard',
-    'division-head-dashboard': 'Division Head Dashboard',
-    'organization-management': 'Organization Master & Hierarchy',
-    'reason-analysis': 'Return Reason Analysis',
-    'recovery-actions': 'Recovery Action Centre',
-    'trends-anomalies': 'Trends & Anomalies',
-    'reports-exports': 'Reports & Exports',
-    'data-import': 'Data Import (Excel & CSV)',
-    'audit-log': 'Audit Log',
-    'settings': 'Settings & Access Control',
-  };
+  const effectiveTab: NavItemId = editingRecord ? 'add-cheque' : activeTab;
 
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-800 font-sans antialiased overflow-hidden">
       {/* Persistent Left Navigation Sidebar */}
       <Sidebar
-        currentTab={editingRecord ? 'add-cheque' : activeTab}
-        onSelectTab={(tab) => {
-          setEditingRecord(null);
-          if (tab !== 'organization-management') {
-            setOrgInitialSubTab('hierarchy');
-          }
-          setActiveTab(tab);
-        }}
+        currentTab={effectiveTab}
+        onSelectTab={(tab) => navigateWithRbac(tab, currentUser, true)}
         currentUser={currentUser}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -592,34 +675,32 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Compact Top Navigation Bar */}
         <TopBar
-          pageTitle={pageTitles[editingRecord ? 'add-cheque' : activeTab]}
+          pageTitle={deniedAttemptTab ? 'Access Denied' : pageTitles[effectiveTab]}
           filters={filters}
           onUpdateFilters={handleUpdateFilters}
           onResetFilters={handleResetFilters}
           currentUser={currentUser}
-          onChangeUser={(u) => setCurrentUser(u)}
           dataQualityIssuesCount={dataQualityIssues.length}
           onOpenDataQuality={() => setDataQualityModalOpen(true)}
           isSampleDataLoaded={records.some((r) => r.isSample)}
-          firebaseEmail={firebaseEmail}
-          syncingCloud={syncingCloud}
-          onSignInGoogle={handleSignInGoogle}
-          onSignOutGoogle={handleSignOutGoogle}
-          onSyncToCloud={handleSyncToCloud}
+          onClearSampleData={handleClearSampleData}
+          onOpenChangePassword={() => setChangePasswordModalOpen(true)}
+          onSignOut={handleSignOut}
         />
 
-        {/* Cloud Sync Status Banner */}
-        {cloudNotice && (
+        {/* Operational / Migration Status Notice */}
+        {statusNotice && (
           <div
             className={`px-5 py-2 text-xs flex items-center justify-between border-b ${
-              cloudNotice.type === 'success'
+              statusNotice.type === 'success'
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                 : 'bg-red-50 text-red-800 border-red-200'
             }`}
           >
-            <span>{cloudNotice.message}</span>
+            <span>{statusNotice.message}</span>
             <button
-              onClick={() => setCloudNotice(null)}
+              type="button"
+              onClick={() => setStatusNotice(null)}
               className="ml-4 text-[11px] font-semibold underline hover:opacity-80"
             >
               Dismiss
@@ -629,235 +710,303 @@ export default function App() {
 
         {/* View Content Viewport */}
         <main className="flex-1 overflow-y-auto p-6">
-          {loading ? (
+          {dataLoading ? (
             <div className="h-full flex flex-col items-center justify-center gap-3 text-xs text-slate-500">
               <WurthLogo size="lg" />
-              <span>Initializing WÜRTH Recovery Intelligence...</span>
+              <span>Loading WÜRTH Recovery Intelligence workspace...</span>
             </div>
+          ) : deniedAttemptTab ? (
+            <AccessDeniedView
+              attemptedSection={pageTitles[deniedAttemptTab] || deniedAttemptTab}
+              role={currentUser.role}
+              defaultTab={getDefaultTabForRole(currentUser.role)}
+              onReturnToDashboard={(tab) => navigateWithRbac(tab, currentUser, false)}
+            />
           ) : (
             <>
               {/* Tab 1: Executive Dashboard */}
-              {activeTab === 'executive-dashboard' && !editingRecord && (
-                <ExecutiveDashboard
-                  kpis={kpis}
-                  records={filteredRecords}
-                  customers={customerIntelligence}
-                  adms={admIntelligence}
-                  reasons={reasonIntelligence}
-                  filters={filters}
-                  onFilterChange={handleUpdateFilters}
-                  onNavigateToRegister={(overrides) => {
-                    if (overrides) handleUpdateFilters(overrides);
-                    setActiveTab('cheque-register');
-                  }}
-                  onSelectCustomer={(cxNumber) => {
-                    handleCustomerDrilldown(cxNumber);
-                  }}
-                />
-              )}
+              {activeTab === 'executive-dashboard' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'executive-dashboard') && (
+                  <ExecutiveDashboard
+                    kpis={kpis}
+                    records={filteredRecords}
+                    customers={customerIntelligence}
+                    adms={admIntelligence}
+                    reasons={reasonIntelligence}
+                    filters={filters}
+                    onFilterChange={handleUpdateFilters}
+                    onNavigateToRegister={(overrides) => {
+                      if (overrides) handleUpdateFilters(overrides);
+                      navigateWithRbac('cheque-register', currentUser, false);
+                    }}
+                    onSelectCustomer={(cxNumber) => {
+                      handleCustomerDrilldown(cxNumber);
+                    }}
+                  />
+                )}
 
               {/* Tab 2: Cheque Return Register */}
-              {activeTab === 'cheque-register' && !editingRecord && (
-                <ChequeRegister
-                  records={filteredRecords}
-                  filters={filters}
-                  onFilterChange={handleUpdateFilters}
-                  onSelectRecord={(rec) => setSelectedRecord(rec)}
-                  onAddNewRecord={() => {
-                    setEditingRecord(null);
-                    setActiveTab('add-cheque');
-                  }}
-                  onBulkImport={() => {
-                    setEditingRecord(null);
-                    setImportMode('CHEQUE_REGISTER');
-                    setActiveTab('data-import');
-                  }}
-                  onEditRecord={(rec) => {
-                    setEditingRecord(rec);
-                    setActiveTab('add-cheque');
-                  }}
-                  currentUser={currentUser}
-                />
-              )}
+              {activeTab === 'cheque-register' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'cheque-register') && (
+                  <ChequeRegister
+                    records={filteredRecords}
+                    filters={filters}
+                    onFilterChange={handleUpdateFilters}
+                    onSelectRecord={(rec) => setSelectedRecord(rec)}
+                    onAddNewRecord={() => {
+                      if (!canEditCheques(currentUser.role)) return;
+                      setEditingRecord(null);
+                      navigateWithRbac('add-cheque', currentUser, false);
+                    }}
+                    onBulkImport={
+                      canImportCheques(currentUser.role)
+                        ? () => {
+                            setEditingRecord(null);
+                            setImportMode('CHEQUE_REGISTER');
+                            navigateWithRbac('data-import', currentUser, false);
+                          }
+                        : undefined
+                    }
+                    onEditRecord={(rec) => {
+                      if (!canEditCheques(currentUser.role)) return;
+                      setEditingRecord(rec);
+                      if (typeof window !== 'undefined') {
+                        window.location.hash = '#/add-cheque';
+                      }
+                    }}
+                    currentUser={currentUser}
+                  />
+                )}
 
               {/* Tab 3: Add / Edit Returned Cheque */}
-              {(activeTab === 'add-cheque' || editingRecord) && (
-                <AddChequeForm
-                  initialRecord={editingRecord}
-                  onSave={handleSaveCheque}
-                  onCancel={() => {
-                    setEditingRecord(null);
-                    setActiveTab('cheque-register');
-                  }}
-                  onNavigateToBulkImport={() => {
-                    setEditingRecord(null);
-                    setImportMode('CHEQUE_REGISTER');
-                    setActiveTab('data-import');
-                  }}
-                  existingRecords={records}
-                  customersMaster={customersMaster}
-                  admsMaster={admsMaster}
-                  currentUser={currentUser}
-                  config={config}
-                />
-              )}
+              {(activeTab === 'add-cheque' || editingRecord) &&
+                canEditCheques(currentUser.role) && (
+                  <AddChequeForm
+                    initialRecord={editingRecord}
+                    onSave={handleSaveCheque}
+                    onCancel={() => {
+                      setEditingRecord(null);
+                      navigateWithRbac('cheque-register', currentUser, false);
+                    }}
+                    onNavigateToBulkImport={
+                      canImportCheques(currentUser.role)
+                        ? () => {
+                            setEditingRecord(null);
+                            setImportMode('CHEQUE_REGISTER');
+                            navigateWithRbac('data-import', currentUser, false);
+                          }
+                        : undefined
+                    }
+                    existingRecords={records}
+                    customersMaster={customersMaster}
+                    admsMaster={admsMaster}
+                    currentUser={currentUser}
+                    config={config}
+                  />
+                )}
 
               {/* Tab 4: Customer Intelligence */}
-              {activeTab === 'customer-intelligence' && !editingRecord && (
-                <CustomerIntelligence
-                  customers={customerIntelligence}
-                  allRecords={records}
-                  onSelectCheque={(rec) => setSelectedRecord(rec)}
-                  onFilterByCustomer={handleCustomerDrilldown}
-                />
-              )}
+              {activeTab === 'customer-intelligence' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'customer-intelligence') && (
+                  <CustomerIntelligence
+                    customers={customerIntelligence}
+                    allRecords={records}
+                    onSelectCheque={(rec) => setSelectedRecord(rec)}
+                    onFilterByCustomer={handleCustomerDrilldown}
+                  />
+                )}
 
               {/* Tab 5: ADM Performance */}
-              {activeTab === 'adm-performance' && !editingRecord && (
-                <AdmPerformance
-                  adms={admIntelligence}
-                  allRecords={records}
-                  customersMaster={customersMaster}
-                  onSelectCheque={(rec) => setSelectedRecord(rec)}
-                  onFilterByAdm={handleAdmDrilldown}
-                />
-              )}
+              {activeTab === 'adm-performance' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'adm-performance') && (
+                  <AdmPerformance
+                    adms={admIntelligence}
+                    allRecords={records}
+                    customersMaster={customersMaster}
+                    onSelectCheque={(rec) => setSelectedRecord(rec)}
+                    onFilterByAdm={handleAdmDrilldown}
+                  />
+                )}
 
               {/* Tab 6: Team Dashboard */}
-              {activeTab === 'team-dashboard' && !editingRecord && (
-                <TeamDashboard
-                  teams={teamIntelligence}
-                  admsMaster={admsMaster}
-                  customersMaster={customersMaster}
-                  allRecords={filteredRecords}
-                  dateBasis={filters.dateBasis}
-                  onFilterByTeam={handleTeamDrilldown}
-                  onFilterByAdm={handleAdmDrilldown}
-                  onFilterByCustomer={handleCustomerDrilldown}
-                  onSelectCheque={(rec) => setSelectedRecord(rec)}
-                />
-              )}
+              {activeTab === 'team-dashboard' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'team-dashboard') && (
+                  <TeamDashboard
+                    teams={teamIntelligence}
+                    admsMaster={admsMaster}
+                    customersMaster={customersMaster}
+                    allRecords={filteredRecords}
+                    dateBasis={filters.dateBasis}
+                    onFilterByTeam={handleTeamDrilldown}
+                    onFilterByAdm={handleAdmDrilldown}
+                    onFilterByCustomer={handleCustomerDrilldown}
+                    onSelectCheque={(rec) => setSelectedRecord(rec)}
+                  />
+                )}
 
-              {/* Tab 7: Division Head Dashboard */}
-              {activeTab === 'division-head-dashboard' && !editingRecord && (
-                <DivisionHeadDashboard
-                  divisionHeads={divisionHeadIntelligence}
-                  teams={teamIntelligence}
-                  admsMaster={admsMaster}
-                  customersMaster={customersMaster}
-                  allRecords={filteredRecords}
-                  dateBasis={filters.dateBasis}
-                  onFilterByDivisionHead={handleDivisionHeadDrilldown}
-                  onFilterByDivision={handleDivisionDrilldown}
-                  onFilterByTeam={handleTeamDrilldown}
-                />
-              )}
+              {/* Tab 7: Division Head Dashboard (Full Division KPIs + Cross-Team Comparative Benchmarking) */}
+              {activeTab === 'division-head-dashboard' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'division-head-dashboard') && (
+                  <DivisionHeadDashboard
+                    currentUser={currentUser}
+                    divisionHeads={divisionHeadIntelligence}
+                    teams={teamIntelligence}
+                    adms={admIntelligence}
+                    customers={customerIntelligence}
+                    admsMaster={admsMaster}
+                    customersMaster={customersMaster}
+                    allRecords={filteredRecords}
+                    dateBasis={filters.dateBasis}
+                    benchmarks={benchmarks}
+                    onFilterByDivisionHead={handleDivisionHeadDrilldown}
+                    onFilterByDivision={handleDivisionDrilldown}
+                    onFilterByTeam={handleTeamDrilldown}
+                    onFilterByAdm={handleAdmDrilldown}
+                    onFilterByCustomer={handleCustomerDrilldown}
+                  />
+                )}
 
               {/* Tab 8: Organization Master & Hierarchy */}
-              {activeTab === 'organization-management' && !editingRecord && (
-                <OrganizationManagement
-                  divisionHeads={divisionHeads}
-                  teams={teams}
-                  adms={admsMaster}
-                  customers={customersMaster}
-                  chequeRecords={records}
-                  historicalAudit={historicalAudit}
-                  currentUser={currentUser}
-                  initialSubTab={orgInitialSubTab}
-                  onRefreshOrgData={refreshOrgMasterState}
-                  onNavigateToImport={(mode) => {
-                    setImportMode(mode);
-                    setActiveTab('data-import');
-                  }}
-                  onMapCustomerToAdm={handleMapCustomerToAdm}
-                  onSaveDivisionHead={handleSaveDivisionHead}
-                  onSaveTeam={handleSaveTeam}
-                  onSaveAdm={handleSaveAdm}
-                  onSaveCustomer={handleSaveCustomer}
-                  onSelectCheque={(rec) => setSelectedRecord(rec)}
-                />
-              )}
+              {activeTab === 'organization-management' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'organization-management') && (
+                  <OrganizationManagement
+                    divisionHeads={divisionHeads}
+                    teams={teams}
+                    adms={admsMaster}
+                    customers={customersMaster}
+                    chequeRecords={records}
+                    historicalAudit={historicalAudit}
+                    currentUser={currentUser}
+                    initialSubTab={orgInitialSubTab}
+                    onRefreshOrgData={refreshAllData}
+                    onNavigateToImport={(mode) => {
+                      if (!canImportOrgMaster(currentUser.role)) return;
+                      setImportMode(mode);
+                      navigateWithRbac('data-import', currentUser, false);
+                    }}
+                    onMapCustomerToAdm={handleMapCustomerToAdm}
+                    onSaveDivisionHead={handleSaveDivisionHead}
+                    onSaveTeam={handleSaveTeam}
+                    onSaveAdm={handleSaveAdm}
+                    onSaveCustomer={handleSaveCustomer}
+                    onSelectCheque={(rec) => setSelectedRecord(rec)}
+                  />
+                )}
 
               {/* Tab 9: Return Reason Analysis */}
-              {activeTab === 'reason-analysis' && !editingRecord && (
-                <ReturnReasonAnalysis
-                  reasons={reasonIntelligence}
-                  allRecords={records}
-                  onSelectCheque={(rec) => setSelectedRecord(rec)}
-                  onFilterByReason={handleReasonDrilldown}
-                />
-              )}
+              {activeTab === 'reason-analysis' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'reason-analysis') && (
+                  <ReturnReasonAnalysis
+                    reasons={reasonIntelligence}
+                    allRecords={records}
+                    onSelectCheque={(rec) => setSelectedRecord(rec)}
+                    onFilterByReason={handleReasonDrilldown}
+                  />
+                )}
 
               {/* Tab 10: Recovery Action Centre */}
-              {activeTab === 'recovery-actions' && !editingRecord && (
-                <RecoveryActionCentre
-                  records={filteredRecords}
-                  onSelectRecord={(rec) => setSelectedRecord(rec)}
-                  onLogAction={handleLogRecoveryAction}
-                  currentUser={currentUser}
-                />
-              )}
+              {activeTab === 'recovery-actions' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'recovery-actions') && (
+                  <RecoveryActionCentre
+                    records={filteredRecords}
+                    onSelectRecord={(rec) => setSelectedRecord(rec)}
+                    onLogAction={handleLogRecoveryAction}
+                    currentUser={currentUser}
+                  />
+                )}
 
               {/* Tab 11: Trends & Anomalies */}
-              {activeTab === 'trends-anomalies' && !editingRecord && (
-                <TrendsAndAnomalies
-                  records={filteredRecords}
-                  kpis={kpis}
-                  customers={customerIntelligence}
-                  reasons={reasonIntelligence}
-                  onSelectCustomer={handleCustomerDrilldown}
-                  onFilterByReason={handleReasonDrilldown}
-                />
-              )}
+              {activeTab === 'trends-anomalies' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'trends-anomalies') && (
+                  <TrendsAndAnomalies
+                    records={filteredRecords}
+                    kpis={kpis}
+                    customers={customerIntelligence}
+                    reasons={reasonIntelligence}
+                    onSelectCustomer={handleCustomerDrilldown}
+                    onFilterByReason={handleReasonDrilldown}
+                  />
+                )}
 
               {/* Tab 12: Reports & Exports */}
-              {activeTab === 'reports-exports' && !editingRecord && (
-                <ReportsAndExports
-                  records={filteredRecords}
-                  filters={filters}
-                  kpis={kpis}
-                  customers={customerIntelligence}
-                  adms={admIntelligence}
-                  reasons={reasonIntelligence}
-                />
-              )}
+              {activeTab === 'reports-exports' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'reports-exports') && (
+                  <ReportsAndExports
+                    records={filteredRecords}
+                    filters={filters}
+                    kpis={kpis}
+                    customers={customerIntelligence}
+                    adms={admIntelligence}
+                    reasons={reasonIntelligence}
+                  />
+                )}
 
               {/* Tab 13: Data Import */}
-              {activeTab === 'data-import' && !editingRecord && (
-                <DataImport
-                  existingRecords={records}
-                  existingAdms={admsMaster}
-                  existingCustomers={customersMaster}
-                  existingTeams={teams}
-                  existingDivisionHeads={divisionHeads}
-                  initialMode={importMode}
-                  onImportComplete={handleImportBatch}
-                  onAdmImportComplete={handleAdmImportComplete}
-                  onCustomerImportComplete={handleCustomerImportComplete}
-                  onNavigateToOrgMaster={(targetTab) => {
-                    setOrgInitialSubTab(targetTab || 'hierarchy');
-                    setActiveTab('organization-management');
-                  }}
-                  onNavigateToChequeRegister={() => setActiveTab('cheque-register')}
-                  currentUser={currentUser}
-                  config={config}
-                />
-              )}
+              {activeTab === 'data-import' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'data-import') && (
+                  <DataImport
+                    existingRecords={records}
+                    existingAdms={admsMaster}
+                    existingCustomers={customersMaster}
+                    existingTeams={teams}
+                    existingDivisionHeads={divisionHeads}
+                    initialMode={importMode}
+                    onImportComplete={handleImportBatch}
+                    onAdmImportComplete={handleAdmImportComplete}
+                    onCustomerImportComplete={handleCustomerImportComplete}
+                    onNavigateToOrgMaster={(targetTab) => {
+                      setOrgInitialSubTab(targetTab || 'hierarchy');
+                      navigateWithRbac('organization-management', currentUser, false);
+                    }}
+                    onNavigateToChequeRegister={() =>
+                      navigateWithRbac('cheque-register', currentUser, false)
+                    }
+                    currentUser={currentUser}
+                    config={config}
+                  />
+                )}
 
-              {/* Tab 14: Audit Log */}
-              {activeTab === 'audit-log' && !editingRecord && <AuditLogView />}
+              {/* Tab 14: User Management (Admin Only) */}
+              {activeTab === 'user-management' &&
+                !editingRecord &&
+                canManageUsers(currentUser.role) && (
+                  <UserManagement
+                    currentUser={currentUser}
+                    divisionHeads={divisionHeads}
+                    teams={teams}
+                  />
+                )}
 
-              {/* Tab 15: Settings & Access Control */}
-              {activeTab === 'settings' && !editingRecord && (
-                <SettingsAndAccessControl
-                  config={config}
-                  onUpdateConfig={handleUpdateConfig}
-                  onResetDataset={handleResetDataset}
-                  onPurgeDatabase={handlePurgeDatabase}
-                  currentUser={currentUser}
-                  totalRecordsCount={records.length}
-                />
-              )}
+              {/* Tab 15: Audit Log (Admin Only) */}
+              {activeTab === 'audit-log' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'audit-log') && <AuditLogView />}
+
+              {/* Tab 16: Settings & Access Control (Admin Only) */}
+              {activeTab === 'settings' &&
+                !editingRecord &&
+                canAccessTab(currentUser.role, 'settings') && (
+                  <SettingsAndAccessControl
+                    config={config}
+                    onUpdateConfig={handleUpdateConfig}
+                    onResetDataset={handleResetDataset}
+                    onPurgeDatabase={handlePurgeDatabase}
+                    currentUser={currentUser}
+                    totalRecordsCount={records.length}
+                  />
+                )}
             </>
           )}
         </main>
@@ -869,9 +1018,12 @@ export default function App() {
         isOpen={!!selectedRecord}
         onClose={() => setSelectedRecord(null)}
         onEdit={(rec) => {
+          if (!canEditCheques(currentUser.role)) return;
           setSelectedRecord(null);
           setEditingRecord(rec);
-          setActiveTab('add-cheque');
+          if (typeof window !== 'undefined') {
+            window.location.hash = '#/add-cheque';
+          }
         }}
         onLogAction={handleLogRecoveryAction}
         currentUser={currentUser}
@@ -887,6 +1039,23 @@ export default function App() {
           setDataQualityModalOpen(false);
         }}
       />
+
+      {/* Mandatory First-Login / Reset Password Change OR Voluntary Password Update */}
+      {(currentUser.mustChangePassword || changePasswordModalOpen) && (
+        <ChangePasswordModal
+          currentUser={currentUser}
+          forceOpen={Boolean(currentUser.mustChangePassword)}
+          onSuccess={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            setChangePasswordModalOpen(false);
+            setStatusNotice({
+              type: 'success',
+              message: 'Your password has been updated securely.',
+            });
+          }}
+          onClose={() => setChangePasswordModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -233,11 +233,10 @@ export function generateReportData(options: ExportOptions): { filename: string; 
 /**
  * Trigger browser download of Excel or CSV
  */
-export function exportReport(options: ExportOptions): void {
+export function exportReport(options: ExportOptions): boolean {
   const { filename, data } = generateReportData(options);
   if (!data || data.length === 0) {
-    alert('No records match the current report criteria.');
-    return;
+    return false;
   }
 
   const worksheet = XLSX.utils.json_to_sheet(data);
@@ -249,4 +248,5 @@ export function exportReport(options: ExportOptions): void {
   } else {
     XLSX.writeFile(workbook, `${filename}.xlsx`, { bookType: 'xlsx' });
   }
+  return true;
 }

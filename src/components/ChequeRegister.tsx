@@ -24,6 +24,7 @@ import {
   UserProfile,
 } from '../types';
 import { formatLKR } from '../services/analytics';
+import { canEditCheques } from '../services/permissions';
 
 interface ChequeRegisterProps {
   records: ChequeRecord[];
@@ -49,8 +50,8 @@ export const ChequeRegister: React.FC<ChequeRegisterProps> = ({
   const [sortField, setSortField] = useState<keyof ChequeRecord>('datePosted');
   const [sortAsc, setSortAsc] = useState(false);
 
-  const canAdd = currentUser.role !== 'MANAGEMENT_VIEWER';
-  const canEdit = currentUser.role !== 'MANAGEMENT_VIEWER';
+  const canAdd = canEditCheques(currentUser.role);
+  const canEdit = canEditCheques(currentUser.role);
 
   const handleSort = (field: keyof ChequeRecord) => {
     if (sortField === field) {

@@ -1,4 +1,4 @@
-import { ChequeRecord } from '../types';
+import type { ChequeRecord } from '../types/index.ts';
 
 /**
  * 10 Official Sample Returned Cheque Records for WÜRTH Recovery Intelligence

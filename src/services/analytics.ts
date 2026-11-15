@@ -1005,20 +1005,35 @@ export function aggregateDivisionHeadIntelligence(
     cheques: ChequeRecord[];
   }>();
 
+  const headIdToBucketKey = new Map<string, string>();
+
   for (const dh of divisionHeadsMaster) {
-    buckets.set(dh.id, {
-      head: dh,
-      teamIds: new Set(),
-      divisions: new Set(dh.divisions || []),
-      adms: [],
-      customers: [],
-      cheques: [],
-    });
+    const bucketKey = normKey(dh.name || dh.canonicalName || dh.id);
+    headIdToBucketKey.set(dh.id, bucketKey);
+    const existing = buckets.get(bucketKey);
+    if (existing) {
+      for (const d of dh.divisions || []) {
+        if (d) existing.divisions.add(d);
+      }
+    } else {
+      buckets.set(bucketKey, {
+        head: dh,
+        teamIds: new Set(),
+        divisions: new Set(dh.divisions || []),
+        adms: [],
+        customers: [],
+        cheques: [],
+      });
+    }
   }
 
   for (const t of teamsMaster) {
-    if (!buckets.has(t.divisionHeadId)) {
-      buckets.set(t.divisionHeadId, {
+    const bucketKey =
+      headIdToBucketKey.get(t.divisionHeadId) ||
+      normKey(t.divisionHeadName) ||
+      t.divisionHeadId;
+    if (!buckets.has(bucketKey)) {
+      buckets.set(bucketKey, {
         head: {
           id: t.divisionHeadId,
           name: t.divisionHeadName,
@@ -1035,13 +1050,17 @@ export function aggregateDivisionHeadIntelligence(
         cheques: [],
       });
     }
-    const b = buckets.get(t.divisionHeadId)!;
+    const b = buckets.get(bucketKey)!;
     b.teamIds.add(t.id);
     if (t.division) b.divisions.add(t.division);
   }
 
   for (const a of admsMaster) {
-    const b = buckets.get(a.divisionHeadId);
+    const bucketKey =
+      headIdToBucketKey.get(a.divisionHeadId) ||
+      normKey(a.divisionHeadName) ||
+      a.divisionHeadId;
+    const b = buckets.get(bucketKey);
     if (b) {
       b.adms.push(a);
       b.teamIds.add(a.teamId);
@@ -1050,16 +1069,24 @@ export function aggregateDivisionHeadIntelligence(
   }
 
   for (const c of customersMaster) {
-    if (c.divisionHeadId && buckets.has(c.divisionHeadId)) {
-      buckets.get(c.divisionHeadId)!.customers.push(c);
+    const bucketKey =
+      (c.divisionHeadId ? headIdToBucketKey.get(c.divisionHeadId) : undefined) ||
+      normKey(c.divisionHead) ||
+      c.divisionHeadId;
+    if (bucketKey && buckets.has(bucketKey)) {
+      buckets.get(bucketKey)!.customers.push(c);
     }
   }
 
   for (const r of records) {
     const ctx = resolveChequeOrgContext(r, custMap, admMap);
     const hid = ctx.divisionHeadId || 'UNMAPPED_HEAD';
-    if (!buckets.has(hid)) {
-      buckets.set(hid, {
+    const bucketKey =
+      headIdToBucketKey.get(hid) ||
+      (ctx.divisionHeadName ? normKey(ctx.divisionHeadName) : '') ||
+      hid;
+    if (!buckets.has(bucketKey)) {
+      buckets.set(bucketKey, {
         head: {
           id: hid,
           name: ctx.divisionHeadName || 'Unassigned Division Head',
@@ -1076,7 +1103,7 @@ export function aggregateDivisionHeadIntelligence(
         cheques: [],
       });
     }
-    buckets.get(hid)!.cheques.push(r);
+    buckets.get(bucketKey)!.cheques.push(r);
   }
 
   return Array.from(buckets.values())

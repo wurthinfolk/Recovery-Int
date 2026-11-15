@@ -23,6 +23,7 @@ import {
   ActionType,
 } from '../types';
 import { formatLKR, formatCompactLKR } from '../services/analytics';
+import { canManageRecovery } from '../services/permissions';
 
 interface RecoveryActionCentreProps {
   records: ChequeRecord[];
@@ -59,6 +60,7 @@ export const RecoveryActionCentre: React.FC<RecoveryActionCentreProps> = ({
   const [newStatus, setNewStatus] = useState<RecoveryStatus>('CONTACT_REQUIRED');
   const [submitting, setSubmitting] = useState(false);
 
+  const canIntervene = canManageRecovery(currentUser.role);
   const todayStr = new Date().toISOString().slice(0, 10);
 
   // Filter queues
@@ -239,7 +241,7 @@ export const RecoveryActionCentre: React.FC<RecoveryActionCentreProps> = ({
                 <th className="py-2.5 px-3">Status</th>
                 <th className="py-2.5 px-3">Assigned Officer</th>
                 <th className="py-2.5 px-3">Next Action & Commitment</th>
-                <th className="py-2.5 px-3 text-center">Intervene</th>
+                {canIntervene && <th className="py-2.5 px-3 text-center">Intervene</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -334,24 +336,26 @@ export const RecoveryActionCentre: React.FC<RecoveryActionCentreProps> = ({
                       )}
                     </td>
 
-                    <td
-                      className="py-2.5 px-3 text-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() => handleOpenActionModal(rec)}
-                        className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-300 rounded transition-colors whitespace-nowrap"
+                    {canIntervene && (
+                      <td
+                        className="py-2.5 px-3 text-center"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        Log Action
-                      </button>
-                    </td>
+                        <button
+                          onClick={() => handleOpenActionModal(rec)}
+                          className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-300 rounded transition-colors whitespace-nowrap"
+                        >
+                          Log Action
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
 
               {unresolvedRecords.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500 text-xs">
+                  <td colSpan={canIntervene ? 8 : 7} className="py-12 text-center text-slate-500 text-xs">
                     All recorded returned cheques have been verified recovered or resolved!
                   </td>
                 </tr>
@@ -362,7 +366,7 @@ export const RecoveryActionCentre: React.FC<RecoveryActionCentreProps> = ({
       </div>
 
       {/* Log Recovery Action Modal (Section 7 Recovery Workflow) */}
-      {actionModalRecord && (
+      {actionModalRecord && canIntervene && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">

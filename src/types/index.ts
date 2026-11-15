@@ -17,12 +17,33 @@ export type RecoveryStatus =
 export type PriorityLevel = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type UserRole =
+  | 'SYSTEM_ADMIN'
   | 'RECOVERY_OFFICER'
   | 'RECOVERY_SUPERVISOR'
   | 'MANAGEMENT_VIEWER'
-  | 'SYSTEM_ADMIN';
+  | 'DIVISION_HEAD';
+
+export type UserAccountStatus = 'ACTIVE' | 'INACTIVE';
 
 export type DateBasis = 'datePosted' | 'effectiveDate';
+
+export type NavItemId =
+  | 'executive-dashboard'
+  | 'cheque-register'
+  | 'add-cheque'
+  | 'customer-intelligence'
+  | 'adm-performance'
+  | 'team-dashboard'
+  | 'division-head-dashboard'
+  | 'organization-management'
+  | 'reason-analysis'
+  | 'recovery-actions'
+  | 'trends-anomalies'
+  | 'reports-exports'
+  | 'data-import'
+  | 'audit-log'
+  | 'user-management'
+  | 'settings';
 
 export interface ChequeRecord {
   id: string;
@@ -109,22 +130,51 @@ export interface ImportBatch {
   errors?: string[];
 }
 
+export type AuditRecordType =
+  | 'CHEQUE_RECORD'
+  | 'RECOVERY_ACTION'
+  | 'IMPORT_BATCH'
+  | 'CONFIG'
+  | 'USER_ROLE'
+  | 'USER_ACCOUNT'
+  | 'AUTH_SESSION'
+  | 'ACCESS_CONTROL'
+  | 'SYSTEM'
+  | 'ADM_MASTER'
+  | 'CUSTOMER_MASTER'
+  | 'TEAM_MASTER'
+  | 'DIVISION_HEAD_MASTER';
+
+export type AuditOperation =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'STATUS_CHANGE'
+  | 'ASSIGNMENT'
+  | 'RECOVERY'
+  | 'IMPORT'
+  | 'EXPORT'
+  | 'CONFIG_CHANGE'
+  | 'LOGIN_SUCCESS'
+  | 'LOGIN_FAILED'
+  | 'LOGOUT'
+  | 'PASSWORD_CHANGE'
+  | 'PASSWORD_RESET'
+  | 'USER_CREATE'
+  | 'USER_UPDATE'
+  | 'USER_STATUS_CHANGE'
+  | 'USER_DELETE'
+  | 'UNAUTHORIZED_ACCESS';
+
 export interface AuditLog {
   id: string;
   recordId: string;
-  recordType:
-    | 'CHEQUE_RECORD'
-    | 'RECOVERY_ACTION'
-    | 'IMPORT_BATCH'
-    | 'CONFIG'
-    | 'USER_ROLE'
-    | 'ADM_MASTER'
-    | 'CUSTOMER_MASTER'
-    | 'TEAM_MASTER'
-    | 'DIVISION_HEAD_MASTER';
-  operation: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'ASSIGNMENT' | 'RECOVERY' | 'IMPORT' | 'CONFIG_CHANGE';
+  recordType: AuditRecordType;
+  operation: AuditOperation;
   actor: string;
+  actorUsername?: string;
   actorEmail: string;
+  actorRole?: UserRole | 'ANONYMOUS';
   details: string;
   beforeValue?: string;
   afterValue?: string;
@@ -140,10 +190,24 @@ export interface AnalyticalConfig {
 
 export interface UserProfile {
   uid: string;
+  username: string;
   email: string;
   displayName: string;
   role: UserRole;
   department: string;
+  mobileNo?: string;
+  employeeId?: string;
+  assignedDivision?: string;
+  assignedTeamId?: string;
+  assignedTeamName?: string;
+  divisionHeadId?: string;
+  divisionHeadName?: string;
+  status: UserAccountStatus;
+  mustChangePassword: boolean;
+  lastLoginAt?: string;
+  createdAt?: string;
+  createdBy?: string;
+  updatedAt?: string;
   avatarUrl?: string;
 }
 
@@ -432,6 +496,33 @@ export interface DivisionHeadSummary {
   chequeIds: string[];
 }
 
+export interface CrossTeamBenchmarkRow {
+  teamId: string;
+  teamLabel: string;
+  divisionLabel: string;
+  isOwnTeam: boolean;
+  rankByValue: number;
+  rankByRecoveryRate: number;
+  admCount: number;
+  totalReturns: number;
+  totalValue: number;
+  unrecoveredExposure: number;
+  verifiedRecoveredValue: number;
+  recoveryRateByValue: number;
+  repeatCustomersCount: number;
+  affectedCustomersCount: number;
+  overdueCasesCount: number;
+}
+
+export interface CrossTeamBenchmarkSummary {
+  totalTeamsCount: number;
+  ownTeamsCount: number;
+  companyAverageReturnValue: number;
+  companyAverageRecoveryRate: number;
+  companyAverageReturnsCount: number;
+  rows: CrossTeamBenchmarkRow[];
+}
+
 export interface HistoricalLinkageAudit {
   totalCheques: number;
   customerMappedCount: number;
@@ -452,4 +543,3 @@ export interface HistoricalLinkageAudit {
     missingAdmMaster: boolean;
   }>;
 }
-

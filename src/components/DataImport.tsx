@@ -43,6 +43,7 @@ import {
 } from '../types';
 import { formatLKR, DEFAULT_CONFIG } from '../services/analytics';
 import { getImportBatches } from '../services/firebase';
+import { canImportOrgMaster } from '../services/permissions';
 
 export type ImportMode = 'ADM_MASTER' | 'CUSTOMER_MASTER' | 'CHEQUE_REGISTER';
 
@@ -82,7 +83,11 @@ export const DataImport: React.FC<DataImportProps> = ({
   currentUser,
   config = DEFAULT_CONFIG,
 }) => {
-  const [mode, setMode] = useState<ImportMode>(initialMode);
+  const allowOrgMasterImport = canImportOrgMaster(currentUser.role);
+  const resolveAllowedMode = (requested: ImportMode): ImportMode =>
+    allowOrgMasterImport ? requested : 'CHEQUE_REGISTER';
+
+  const [mode, setMode] = useState<ImportMode>(() => resolveAllowedMode(initialMode));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -107,12 +112,14 @@ export const DataImport: React.FC<DataImportProps> = ({
   const [stageUnmappedCustomers, setStageUnmappedCustomers] = useState(false);
 
   useEffect(() => {
-    setMode(initialMode);
+    setMode(resolveAllowedMode(initialMode));
     resetWizard();
-  }, [initialMode]);
+  }, [initialMode, allowOrgMasterImport]);
 
   useEffect(() => {
-    getImportBatches().then((batches) => setImportBatches(batches));
+    getImportBatches()
+      .then((batches) => setImportBatches(batches))
+      .catch(() => setImportBatches([]));
   }, [importDone]);
 
   const resetWizard = () => {
@@ -427,32 +434,36 @@ export const DataImport: React.FC<DataImportProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Mode Switcher: 2 Authoritative Master Imports + Cheque Register */}
+      {/* Mode Switcher: Master Imports (Admin only) + Cheque Register */}
       <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => handleSwitchMode('ADM_MASTER')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-md transition-colors ${
-              mode === 'ADM_MASTER'
-                ? 'bg-red-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <Briefcase className="w-4 h-4" />
-            <span>1. Import ADM Master (9 Columns)</span>
-          </button>
+          {allowOrgMasterImport && (
+            <>
+              <button
+                onClick={() => handleSwitchMode('ADM_MASTER')}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-md transition-colors ${
+                  mode === 'ADM_MASTER'
+                    ? 'bg-red-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>1. Import ADM Master (9 Columns)</span>
+              </button>
 
-          <button
-            onClick={() => handleSwitchMode('CUSTOMER_MASTER')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-md transition-colors ${
-              mode === 'CUSTOMER_MASTER'
-                ? 'bg-red-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>2. Import Customer Master (5 Columns)</span>
-          </button>
+              <button
+                onClick={() => handleSwitchMode('CUSTOMER_MASTER')}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-md transition-colors ${
+                  mode === 'CUSTOMER_MASTER'
+                    ? 'bg-red-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>2. Import Customer Master (5 Columns)</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={() => handleSwitchMode('CHEQUE_REGISTER')}
@@ -463,7 +474,11 @@ export const DataImport: React.FC<DataImportProps> = ({
             }`}
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>3. Import Cheque Return Register</span>
+            <span>
+              {allowOrgMasterImport
+                ? '3. Import Cheque Return Register'
+                : 'Bulk Upload Cheque Return Register'}
+            </span>
           </button>
         </div>
 
@@ -496,6 +511,7 @@ export const DataImport: React.FC<DataImportProps> = ({
           </button>
         )}
       </div>
+
 
       {errorBanner && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 flex items-center justify-between">

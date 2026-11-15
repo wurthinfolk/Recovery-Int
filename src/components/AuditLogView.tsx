@@ -96,10 +96,23 @@ export const AuditLogView: React.FC = () => {
             className="text-xs py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-slate-700"
           >
             <option value="">All Audit Operations</option>
+            <option value="LOGIN_SUCCESS">LOGIN SUCCESS</option>
+            <option value="LOGIN_FAILED">LOGIN FAILED</option>
+            <option value="LOGOUT">LOGOUT</option>
+            <option value="PASSWORD_CHANGE">PASSWORD CHANGE</option>
+            <option value="PASSWORD_RESET">PASSWORD RESET</option>
+            <option value="USER_CREATE">USER CREATE</option>
+            <option value="USER_UPDATE">USER UPDATE</option>
+            <option value="USER_STATUS_CHANGE">USER STATUS CHANGE</option>
+            <option value="USER_DELETE">USER DELETE</option>
+            <option value="UNAUTHORIZED_ACCESS">UNAUTHORIZED ACCESS</option>
             <option value="CREATE">CREATE</option>
             <option value="UPDATE">UPDATE</option>
+            <option value="DELETE">DELETE</option>
+            <option value="ASSIGNMENT">ASSIGNMENT</option>
             <option value="RECOVERY">RECOVERY INTERVENTION</option>
             <option value="IMPORT">IMPORT BATCH</option>
+            <option value="EXPORT">EXPORT REPORT</option>
             <option value="CONFIG_CHANGE">CONFIG CHANGE</option>
           </select>
           <span className="text-xs text-slate-500 font-mono">
@@ -131,11 +144,15 @@ export const AuditLogView: React.FC = () => {
                   <td className="py-2.5 px-3">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold ${
-                        log.operation === 'CREATE'
-                          ? 'bg-blue-100 text-blue-800'
-                          : log.operation === 'RECOVERY'
+                        log.operation === 'UNAUTHORIZED_ACCESS' || log.operation === 'LOGIN_FAILED' || log.operation === 'DELETE' || log.operation === 'USER_DELETE'
+                          ? 'bg-red-100 text-red-800'
+                          : log.operation === 'LOGIN_SUCCESS' || log.operation === 'RECOVERY'
                           ? 'bg-emerald-100 text-emerald-800'
-                          : log.operation === 'IMPORT'
+                          : log.operation === 'USER_CREATE' || log.operation === 'USER_UPDATE' || log.operation === 'USER_STATUS_CHANGE' || log.operation === 'PASSWORD_CHANGE' || log.operation === 'PASSWORD_RESET'
+                          ? 'bg-amber-100 text-amber-900'
+                          : log.operation === 'CREATE'
+                          ? 'bg-blue-100 text-blue-800'
+                          : log.operation === 'IMPORT' || log.operation === 'EXPORT'
                           ? 'bg-purple-100 text-purple-800'
                           : 'bg-slate-100 text-slate-800'
                       }`}
@@ -146,7 +163,10 @@ export const AuditLogView: React.FC = () => {
 
                   <td className="py-2.5 px-3 font-sans text-slate-900 font-medium whitespace-nowrap">
                     <div>{log.actor}</div>
-                    <div className="text-[10px] text-slate-400 font-mono">{log.actorEmail}</div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      {log.actorUsername ? `@${log.actorUsername}` : log.actorEmail}
+                      {log.actorRole ? ` · ${log.actorRole}` : ''}
+                    </div>
                   </td>
 
                   <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">

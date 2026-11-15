@@ -21,6 +21,7 @@ import {
 } from '../types';
 import { ReportType, exportReport, generateReportData } from '../services/exportService';
 import { formatLKR } from '../services/analytics';
+import { apiRecordAuditEvent } from '../services/api';
 
 interface ReportsAndExportsProps {
   records: ChequeRecord[];
@@ -48,6 +49,7 @@ export const ReportsAndExports: React.FC<ReportsAndExportsProps> = ({
 }) => {
   const [selectedReport, setSelectedReport] = useState<ReportType>('COMPLETE_REGISTER');
   const [exportFormat, setExportFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  const [exportNotice, setExportNotice] = useState<{ type: 'info' | 'error'; message: string } | null>(null);
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -115,7 +117,8 @@ export const ReportsAndExports: React.FC<ReportsAndExportsProps> = ({
   ];
 
   const handleDownload = () => {
-    exportReport({
+    setExportNotice(null);
+    const ok = exportReport({
       reportType: selectedReport,
       records,
       filters,
@@ -125,6 +128,19 @@ export const ReportsAndExports: React.FC<ReportsAndExportsProps> = ({
       reasons,
       format: exportFormat,
     });
+    if (!ok) {
+      setExportNotice({
+        type: 'error',
+        message: 'No data records available to export for the selected report and current filters.',
+      });
+      return;
+    }
+    apiRecordAuditEvent({
+      recordId: selectedReport,
+      recordType: 'CHEQUE_RECORD',
+      operation: 'EXPORT',
+      details: `Exported ${selectedReport} report (${exportFormat.toUpperCase()}) with ${preview.data.length} row(s).`,
+    }).catch(() => {});
   };
 
   const preview = generateReportData({
@@ -184,6 +200,25 @@ export const ReportsAndExports: React.FC<ReportsAndExportsProps> = ({
           </button>
         </div>
       </div>
+
+      {exportNotice && (
+        <div
+          className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
+            exportNotice.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          }`}
+        >
+          <span>{exportNotice.message}</span>
+          <button
+            type="button"
+            onClick={() => setExportNotice(null)}
+            className="text-[11px] font-semibold underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Report Selection Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

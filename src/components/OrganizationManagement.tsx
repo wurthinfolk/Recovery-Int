@@ -33,6 +33,7 @@ import {
   AdmModal,
   CustomerModal,
 } from './OrganizationMasterModals';
+import { canManageOrg as hasOrgManagePermission, ROLE_LABELS } from '../services/permissions';
 
 export type OrgSubTab = 'hierarchy' | 'heads' | 'teams' | 'adms' | 'customers' | 'historical';
 
@@ -113,8 +114,7 @@ export const OrganizationManagement: React.FC<OrganizationManagementProps> = ({
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<CustomerMasterRecord | null>(null);
 
-  const canManageOrg =
-    currentUser.role === 'RECOVERY_SUPERVISOR' || currentUser.role === 'SYSTEM_ADMIN';
+  const canManageOrg = hasOrgManagePermission(currentUser.role);
 
   const unmappedCustomersCount = customers.filter((c) => c.requiresAdmMapping).length;
   const mismatchCustomersCount = customers.filter(
@@ -328,8 +328,8 @@ export const OrganizationManagement: React.FC<OrganizationManagementProps> = ({
         <div className="p-3 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 flex items-center gap-2">
           <Info className="w-4 h-4 text-slate-500 shrink-0" />
           <span>
-            Viewing Organization Master in read-only mode (<strong>{currentUser.role.replace('_', ' ')}</strong>).
-            Switch to <strong>Recovery Supervisor</strong> or <strong>System Admin</strong> in the top-right user menu to add or edit Division Heads, Teams, ADMs, and Customers.
+            Viewing Organization Master in read-only mode (<strong>{ROLE_LABELS[currentUser.role]}</strong>).
+            Adding or editing Division Heads, Teams, ADMs, and Customers is restricted to <strong>System Administrator</strong> accounts.
           </span>
         </div>
       )}
@@ -528,8 +528,15 @@ export const OrganizationManagement: React.FC<OrganizationManagementProps> = ({
                       )}
                     </div>
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">
-                    Division: <strong>{dh.divisions.join(', ')}</strong>
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                    {dh.divisions.map((div) => (
+                      <span
+                        key={div}
+                        className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-semibold"
+                      >
+                        {div}
+                      </span>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -796,7 +803,18 @@ export const OrganizationManagement: React.FC<OrganizationManagementProps> = ({
                         <div>{dh.name}</div>
                         <div className="text-[10px] font-mono text-slate-400">{dh.id}</div>
                       </td>
-                      <td className="py-2.5 px-2 text-slate-700">{dh.divisions.join(', ')}</td>
+                      <td className="py-2.5 px-2">
+                        <div className="flex flex-wrap gap-1">
+                          {dh.divisions.map((div) => (
+                            <span
+                              key={div}
+                              className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-semibold"
+                            >
+                              {div}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="py-2.5 px-2 text-center font-mono">{dhTeams.length}</td>
                       <td className="py-2.5 px-2 text-center font-mono">{dhAdms.length}</td>
                       <td className="py-2.5 px-2 text-center font-mono">{dhCustomers.length}</td>

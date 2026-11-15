@@ -23,7 +23,8 @@ import {
   RecoveryStatus,
 } from '../types';
 import { formatLKR } from '../services/analytics';
-import { getRecoveryActions, getAuditLogs } from '../services/firebase';
+import { getRecoveryActions, getChequeCaseHistory } from '../services/firebase';
+import { canEditCheques, canManageRecovery } from '../services/permissions';
 
 interface ChequeDetailModalProps {
   record: ChequeRecord | null;
@@ -71,10 +72,14 @@ export const ChequeDetailModal: React.FC<ChequeDetailModalProps> = ({
   useEffect(() => {
     if (record) {
       setLoadingHistory(true);
-      Promise.all([getRecoveryActions(record.id), getAuditLogs()])
-        .then(([actList, auditList]) => {
-          setActions(actList);
-          setAuditTrail(auditList.filter((a) => a.recordId === record.id));
+      getChequeCaseHistory(record.id)
+        .then((res) => {
+          setActions(res.actions);
+          setAuditTrail(res.auditTrail);
+        })
+        .catch(() => {
+          setActions([]);
+          setAuditTrail([]);
         })
         .finally(() => setLoadingHistory(false));
     }
@@ -110,7 +115,8 @@ export const ChequeDetailModal: React.FC<ChequeDetailModalProps> = ({
     }
   };
 
-  const canEdit = currentUser.role !== 'MANAGEMENT_VIEWER';
+  const canEdit = canEditCheques(currentUser.role);
+  const canIntervene = canManageRecovery(currentUser.role);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
@@ -245,7 +251,7 @@ export const ChequeDetailModal: React.FC<ChequeDetailModalProps> = ({
               )}
             </div>
 
-            {canEdit && (
+            {canIntervene && (
               <button
                 onClick={() => setShowActionForm(!showActionForm)}
                 className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded text-xs transition-colors shrink-0"
